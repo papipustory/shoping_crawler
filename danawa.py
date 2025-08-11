@@ -52,27 +52,21 @@ class DanawaParser:
                 # 제조사 버튼들 찾기 - 정확한 클래스명 사용 
                 buttons = maker_tab.find_all('button', class_='button__option')
                 
-                print(f"찾은 제조사 버튼 수: {len(buttons)}")
-                
                 # makerBrandTab에서 제조사 이름들 수집
                 brand_names = []
                 for button in buttons:
                     option_name = button.get('data-optionname')
                     if option_name:
                         brand_names.append(option_name)
-                        print(f"makerBrandTab에서 찾은 제조사: {option_name}")
                 
                 # makerOptionTab에서 실제 코드 찾기
                 option_tab = soup.find('div', id='makerOptionTab')
                 if option_tab:
                     option_buttons = option_tab.find_all('button', class_='button__option')
-                    print(f"makerOptionTab에서 찾은 버튼 수: {len(option_buttons)}")
                     
                     for opt_button in option_buttons:
                         opt_name = opt_button.get('data-optionname')
                         opt_code = opt_button.get('data-optioncode')
-                        
-                        print(f"makerOptionTab - 제조사: {opt_name}, 코드: {opt_code}")
                         
                         # makerBrandTab에 있는 제조사만 추가
                         if opt_name in brand_names and opt_code and opt_code.isdigit():
@@ -81,9 +75,6 @@ class DanawaParser:
                                 'name': opt_name,
                                 'code': opt_code
                             })
-                            print(f"매핑 완료: {opt_name} -> {opt_code}")
-                else:
-                    print("makerOptionTab을 찾을 수 없음")
             
             # 옵션을 찾지 못한 경우 기본 제조사 목록 사용
             if not options:
@@ -149,17 +140,10 @@ class DanawaParser:
                 print(f"제조사 필터: maker={value} 적용")
                 
             params[key] = value
-            print(f"제조사 필터 적용: {key}={value}")
-            print(f"추가 제조사 파라미터들도 적용")
-        
-        print(f"검색 URL: {self.base_url}")
-        print(f"검색 파라미터: {params}")
         
         try:
             response = self.session.get(self.base_url, params=params)
             response.raise_for_status()
-            print(f"응답 상태: {response.status_code}")
-            print(f"최종 URL: {response.url}")
             
             soup = BeautifulSoup(response.text, 'html.parser')
             products = []
@@ -182,21 +166,15 @@ class DanawaParser:
                         if product_items:
                             break
             
-            print(f"찾은 제품 아이템 수: {len(product_items)}")
-            
             parsed_count = 0
             for i, item in enumerate(product_items[:limit * 2]):  # 여유있게 더 많이 시도
                 try:
-                    print(f"제품 {i+1} 파싱 시도...")
                     product = self._parse_product_item(item)
                     if product:
-                        print(f"제품 파싱 성공: {product.name[:50]}...")
                         products.append(product)
                         parsed_count += 1
                         if parsed_count >= limit:
                             break
-                    else:
-                        print(f"제품 {i+1} 파싱 실패 - 유효하지 않은 데이터")
                     time.sleep(0.3)  # 요청 간격 조절 (조금 빠르게)
                 except Exception as e:
                     print(f"개별 제품 파싱 중 오류: {e}")
@@ -223,7 +201,6 @@ class DanawaParser:
                 name = name_elem.get_text(strip=True)
                 # 연속된 공백을 하나로 압축
                 name = ' '.join(name.split())
-                print(f"제품명 찾음: '{name}'")
             else:
                 print("goods-list__title 클래스를 찾을 수 없음")
                 # 방법 2: a 태그의 title 속성
@@ -254,7 +231,6 @@ class DanawaParser:
                     price_text = number_elem.text.strip()
                     if price_text and price_text != '-':
                         price = price_text + "원"
-                        print(f"가격 찾음: '{price}'")
             
             # 방법 2: 다른 가격 클래스들 시도
             if price == "가격 문의":
