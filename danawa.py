@@ -46,70 +46,71 @@ class DanawaParser:
             soup = BeautifulSoup(response.text, 'html.parser')
             options = []
             
-            # 제조사/브랜드 탭에서 제조사 찾기 (검색된 키워드에 맞는 제조사들)
+            # 제조사/브랜드 탭에서 제조사 찾기 (검색된 키워드에 맞는 제조사들만)
             maker_tab = soup.find('div', id='makerBrandTab')
             if maker_tab:
-                # 제조사 버튼들 찾기 - 정확한 클래스명 사용 
-                buttons = maker_tab.find_all('button', class_='button__option')
-                
-                # makerBrandTab에서 제조사 이름들 수집
+                # text__option 클래스에서 실제 제조사명 추출
+                option_spans = maker_tab.find_all('span', class_='text__option')
                 brand_names = []
-                for button in buttons:
-                    option_name = button.get('data-optionname')
-                    if option_name:
-                        brand_names.append(option_name)
                 
-                # makerOptionTab에서 실제 코드 찾기
+                for span in option_spans:
+                    manufacturer_name = span.text.strip()
+                    if manufacturer_name:
+                        brand_names.append(manufacturer_name)
+                
+                # makerOptionTab에서 실제 maker 코드 찾기
                 option_tab = soup.find('div', id='makerOptionTab')
-                if option_tab:
+                if option_tab and brand_names:
                     option_buttons = option_tab.find_all('button', class_='button__option')
                     
-                    for opt_button in option_buttons:
-                        opt_name = opt_button.get('data-optionname')
-                        opt_code = opt_button.get('data-optioncode')
+                    for button in option_buttons:
+                        maker_name = button.get('data-optionname', '').strip()
+                        maker_code = button.get('data-optioncode', '').strip()
                         
-                        # makerBrandTab에 있는 제조사만 추가
-                        if opt_name in brand_names and opt_code and opt_code.isdigit():
+                        # makerBrandTab에 있는 제조사와 매칭되면 추가
+                        if maker_name in brand_names and maker_code.isdigit():
                             options.append({
                                 'category': '제조사',
-                                'name': opt_name,
-                                'code': opt_code
+                                'name': maker_name,
+                                'code': maker_code
                             })
+                
+                # makerOptionTab에서 코드를 찾지 못한 경우 기본 매핑 사용
+                if not options and brand_names:
+                    # 기본 제조사 코드 매핑
+                    default_codes = {
+                        '삼성전자': '702',
+                        'Samsung': '702',
+                        'Western Digital': '4213', 
+                        'WD': '4213',
+                        'ASUS': '17',
+                        'MSI': '143',
+                        'GIGABYTE': '399',
+                        'Intel': '16',
+                        '인텔': '16',
+                        'AMD': '238',
+                        'Seagate': '24',
+                        '시게이트': '24',
+                        'Toshiba': '23',
+                        '도시바': '23',
+                        'SK하이닉스': '3147',
+                        'Micron': '3144',
+                        '마이크론': '3144'
+                    }
+                    
+                    for brand_name in brand_names:
+                        code = default_codes.get(brand_name, brand_name)
+                        options.append({
+                            'category': '제조사',
+                            'name': brand_name,
+                            'code': code
+                        })
             
-            # 옵션을 찾지 못한 경우 기본 제조사 목록 사용
-            if not options:
-                default_manufacturers = [
-                    {'category': '제조사', 'name': '삼성전자', 'code': '185'},
-                    {'category': '제조사', 'name': 'LG전자', 'code': '21'},
-                    {'category': '제조사', 'name': 'ASUS', 'code': '17'},
-                    {'category': '제조사', 'name': 'MSI', 'code': '143'},
-                    {'category': '제조사', 'name': 'GIGABYTE', 'code': '399'},
-                    {'category': '제조사', 'name': 'EVGA', 'code': '3148'},
-                    {'category': '제조사', 'name': '조텍', 'code': '3142'},
-                    {'category': '제조사', 'name': '갤럭시', 'code': '3154'},
-                    {'category': '제조사', 'name': '인텔', 'code': '16'},
-                    {'category': '제조사', 'name': 'AMD', 'code': '238'},
-                    {'category': '제조사', 'name': '웨스턴디지털', 'code': '22'},
-                    {'category': '제조사', 'name': '시게이트', 'code': '24'},
-                ]
-                return default_manufacturers
-            
-            return options[:20]  # 최대 20개로 제한
+            return options  # 찾은 제조사들만 반환 (없으면 빈 리스트)
             
         except Exception as e:
             print(f"옵션 조회 중 오류 발생: {e}")
-            # 오류 발생시 기본 제조사 목록 반환
-            return [
-                {'category': '제조사', 'name': '삼성전자', 'code': '185'},
-                {'category': '제조사', 'name': 'LG전자', 'code': '21'},
-                {'category': '제조사', 'name': 'ASUS', 'code': '17'},
-                {'category': '제조사', 'name': 'MSI', 'code': '143'},
-                {'category': '제조사', 'name': 'GIGABYTE', 'code': '399'},
-                {'category': '제조사', 'name': '웨스턴디지털', 'code': '22'},
-                {'category': '제조사', 'name': '시게이트', 'code': '24'},
-                {'category': '제조사', 'name': '인텔', 'code': '16'},
-                {'category': '제조사', 'name': 'AMD', 'code': '238'},
-            ]
+            return []  # 오류 발생시도 빈 리스트 반환
     
     def search_products(self, keyword: str, sort_type: str = "saveDESC", limit: int = 5, option_filter: str = None) -> List[Product]:
         """
