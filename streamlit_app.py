@@ -45,7 +45,7 @@ st.markdown("""
         background: #f8f9fa;
         padding: 1.5rem;
         border-radius: 10px;
-        border: 2px solid #e9ecef;
+        border: 1px solid #dee2e6;
     }
     
     .results-container {
@@ -57,11 +57,22 @@ st.markdown("""
     
     .metric-container {
         background: linear-gradient(135deg, #27ae60, #2ecc71);
-        padding: 1rem;
-        border-radius: 10px;
+        padding: 0.8rem;
+        border-radius: 8px;
         color: white;
         text-align: center;
-        margin: 0.5rem;
+        margin: 0.3rem;
+        font-size: 0.9rem;
+    }
+    
+    .metric-container h2 {
+        font-size: 1.5rem;
+        margin-bottom: 0.2rem;
+    }
+    
+    .metric-container p {
+        font-size: 0.8rem;
+        margin-bottom: 0;
     }
     
     .stSelectbox > div > div {
@@ -150,11 +161,10 @@ with st.container():
 
 # 제조사 선택 영역
 if st.session_state.show_manufacturers and st.session_state.search_options:
-    with st.container():
-        st.markdown('<div class="search-container">', unsafe_allow_html=True)
-        st.markdown("### 🏭 제조사 선택 (다중선택 가능)")
-        
-        st.markdown('<div class="manufacturer-grid">', unsafe_allow_html=True)
+    st.markdown("---")
+    st.markdown("### 🏭 제조사 선택 (다중선택 가능)")
+    
+    st.markdown('<div class="manufacturer-grid">', unsafe_allow_html=True)
         
         # 제조사 체크박스들을 열로 배치
         manufacturers = st.session_state.search_options
@@ -229,16 +239,16 @@ if st.session_state.show_manufacturers and st.session_state.search_options:
         with col2:
             if st.button("🔄 선택 초기화", key="clear_selection"):
                 st.rerun()
-        
-        st.markdown('</div>', unsafe_allow_html=True)
+    
+    st.markdown('</div>', unsafe_allow_html=True)
 
 # 검색 결과 표시
 if st.session_state.search_results:
     with st.container():
         st.markdown('<div class="results-container">', unsafe_allow_html=True)
         
-        # 통계 정보
-        col1, col2, col3 = st.columns(3)
+        # 통계 정보 - 크기 조정 (2:2:1 비율)
+        col1, col2, col3 = st.columns([1, 1, 1])
         
         with col1:
             st.markdown(f"""
@@ -336,20 +346,20 @@ if st.session_state.search_results:
             column_config={
                 "No": st.column_config.NumberColumn(
                     "No",
-                    width="small",
+                    width=60,
                     format="%d"
                 ),
                 "제품명": st.column_config.TextColumn(
                     "제품명",
-                    width="large"
+                    width=350
                 ),
                 "가격": st.column_config.TextColumn(
                     "가격",
-                    width="medium"
+                    width=120
                 ),
                 "세부사양": st.column_config.TextColumn(
                     "세부사양",
-                    width="large"
+                    width=400
                 )
             }
         )
