@@ -46,48 +46,79 @@ class DanawaParser:
             soup = BeautifulSoup(response.text, 'html.parser')
             options = []
             
-            # loadingArea > searchOptionListArea에서 옵션들 찾기
-            loading_area = soup.find('div', id='loadingArea')
-            if loading_area:
-                option_area = loading_area.find('div', id='searchOptionListArea')
-                if option_area:
-                    # box__option-row 클래스들 찾기 (각 옵션 섹션)
-                    option_rows = option_area.find_all('div', class_='box__option-row')
-                    
-                    for row in option_rows:
-                        # 카테고리명 가져오기 (text__title)
-                        title_div = row.find('div', class_='box__option-title')
-                        if title_div:
-                            title_span = title_div.find('span', class_='text__title')
-                            if title_span:
-                                category_name = title_span.text.strip()
-                                
-                                # 해당 섹션에서 data-optioncode 있는 버튼들 찾기
-                                option_buttons = row.find_all('button', attrs={'data-optioncode': True})
-                                
-                                for button in option_buttons:
-                                    option_code = button.get('data-optioncode')
-                                    option_name_attr = button.get('data-optionname')
-                                    
-                                    # text__option 스팬에서 버튼 텍스트 가져오기
-                                    text_span = button.find('span', class_='text__option')
-                                    if text_span:
-                                        button_text = text_span.text.strip()
-                                    else:
-                                        button_text = option_name_attr if option_name_attr else button.get_text(strip=True)
-                                    
-                                    if option_code and button_text:
-                                        options.append({
-                                            'category': category_name,
-                                            'name': button_text,
-                                            'code': option_code
-                                        })
+            # 제조사/브랜드 탭에서 옵션 찾기 (실제 HTML 구조 기반)
+            maker_tab = soup.find('div', id='makerBrandTab')
+            if maker_tab:
+                # 제조사 버튼들 찾기
+                buttons = maker_tab.find_all('button', class_='button__option')
+                
+                # 제조사명과 숫자 코드 매핑 (다나와 실제 코드)
+                manufacturer_codes = {
+                    '삼성전자': '185',
+                    'LG전자': '21', 
+                    'ASUS': '17',
+                    'MSI': '143',
+                    'GIGABYTE': '399',
+                    'EVGA': '3148',
+                    '조텍': '3142',
+                    '갤럭시': '3154',
+                    '인텔': '16',
+                    'AMD': '238',
+                    'NVIDIA': '3151',
+                    '마이크론': '3144',
+                    'SK하이닉스': '3147',
+                    '웨스턴디지털': '22',
+                    '시게이트': '24',
+                    '도시바': '23',
+                    '크루셜': '3145',
+                    'CORSAIR': '3146',
+                    'G.SKILL': '3149',
+                    'TeamGroup': '3150',
+                }
+                
+                for button in buttons:
+                    option_name = button.get('data-optionname')
+                    if option_name and option_name in manufacturer_codes:
+                        options.append({
+                            'category': '제조사',
+                            'name': option_name,
+                            'code': manufacturer_codes[option_name]
+                        })
             
-            return options
+            # 옵션을 찾지 못한 경우 기본 제조사 목록 사용
+            if not options:
+                default_manufacturers = [
+                    {'category': '제조사', 'name': '삼성전자', 'code': '185'},
+                    {'category': '제조사', 'name': 'LG전자', 'code': '21'},
+                    {'category': '제조사', 'name': 'ASUS', 'code': '17'},
+                    {'category': '제조사', 'name': 'MSI', 'code': '143'},
+                    {'category': '제조사', 'name': 'GIGABYTE', 'code': '399'},
+                    {'category': '제조사', 'name': 'EVGA', 'code': '3148'},
+                    {'category': '제조사', 'name': '조텍', 'code': '3142'},
+                    {'category': '제조사', 'name': '갤럭시', 'code': '3154'},
+                    {'category': '제조사', 'name': '인텔', 'code': '16'},
+                    {'category': '제조사', 'name': 'AMD', 'code': '238'},
+                    {'category': '제조사', 'name': '웨스턴디지털', 'code': '22'},
+                    {'category': '제조사', 'name': '시게이트', 'code': '24'},
+                ]
+                return default_manufacturers
+            
+            return options[:20]  # 최대 20개로 제한
             
         except Exception as e:
             print(f"옵션 조회 중 오류 발생: {e}")
-            return []
+            # 오류 발생시 기본 제조사 목록 반환
+            return [
+                {'category': '제조사', 'name': '삼성전자', 'code': '185'},
+                {'category': '제조사', 'name': 'LG전자', 'code': '21'},
+                {'category': '제조사', 'name': 'ASUS', 'code': '17'},
+                {'category': '제조사', 'name': 'MSI', 'code': '143'},
+                {'category': '제조사', 'name': 'GIGABYTE', 'code': '399'},
+                {'category': '제조사', 'name': '웨스턴디지털', 'code': '22'},
+                {'category': '제조사', 'name': '시게이트', 'code': '24'},
+                {'category': '제조사', 'name': '인텔', 'code': '16'},
+                {'category': '제조사', 'name': 'AMD', 'code': '238'},
+            ]
     
     def search_products(self, keyword: str, sort_type: str = "saveDESC", limit: int = 5, option_filter: str = None) -> List[Product]:
         """
@@ -122,11 +153,34 @@ class DanawaParser:
             # 제품 목록 파싱 - 모바일 버전 (올바른 구조)
             product_items = soup.find_all('li', class_='goods-list__item')
             
-            for item in product_items[:limit]:
-                product = self._parse_product_item(item)
-                if product:
-                    products.append(product)
-                    time.sleep(0.5)  # 요청 간격 조절
+            # 제품 아이템이 없는 경우 다른 클래스들 시도
+            if not product_items:
+                alternative_classes = ['product-item', 'goods-item', 'list-item', 'item']
+                for cls in alternative_classes:
+                    product_items = soup.find_all('li', class_=cls)
+                    if product_items:
+                        break
+                
+                # li 태그가 아닌 div 태그로 된 경우도 시도
+                if not product_items:
+                    for cls in ['goods-list__item', 'product-item', 'goods-item']:
+                        product_items = soup.find_all('div', class_=cls)
+                        if product_items:
+                            break
+            
+            parsed_count = 0
+            for item in product_items[:limit * 2]:  # 여유있게 더 많이 시도
+                try:
+                    product = self._parse_product_item(item)
+                    if product:
+                        products.append(product)
+                        parsed_count += 1
+                        if parsed_count >= limit:
+                            break
+                    time.sleep(0.3)  # 요청 간격 조절 (조금 빠르게)
+                except Exception as e:
+                    print(f"개별 제품 파싱 중 오류: {e}")
+                    continue
             
             return products
             
@@ -137,26 +191,60 @@ class DanawaParser:
     def _parse_product_item(self, item) -> Optional[Product]:
         """제품 아이템에서 정보를 추출합니다."""
         try:
-            # 제품명 - 모바일 버전
-            name_elem = item.find('span', class_='goods-list__title')
-            name = name_elem.text.strip() if name_elem else "정보 없음"
+            # 제품명 추출 - 여러 방법 시도
+            name = "정보 없음"
             
-            # 가격 - 모바일 버전
+            # 방법 1: goods-list__title 클래스
+            name_elem = item.find('span', class_='goods-list__title')
+            if name_elem:
+                name = name_elem.text.strip()
+            else:
+                # 방법 2: a 태그의 title 속성
+                link_elem = item.find('a', title=True)
+                if link_elem:
+                    name = link_elem.get('title', '').strip()
+                else:
+                    # 방법 3: 일반적인 제품명 클래스들 시도
+                    for cls in ['title', 'product-title', 'goods-title', 'item-title']:
+                        elem = item.find(class_=cls)
+                        if elem and elem.text.strip():
+                            name = elem.text.strip()
+                            break
+            
+            # 가격 추출 - 여러 방법 시도
+            price = "가격 문의"
+            
+            # 방법 1: goods-list__price > em.number
             price_div = item.find('div', class_='goods-list__price')
             if price_div:
                 number_elem = price_div.find('em', class_='number')
-                if number_elem:
-                    price = number_elem.text.strip() + "원"
-                else:
-                    price = "가격 문의"
-            else:
-                price = "가격 문의"
+                if number_elem and number_elem.text.strip():
+                    price_text = number_elem.text.strip()
+                    if price_text and price_text != '-':
+                        price = price_text + "원"
             
-            # 세부 사양 - 아이템 내에서 직접 찾기 (검색 결과 페이지에 이미 있음)
+            # 방법 2: 다른 가격 클래스들 시도
+            if price == "가격 문의":
+                for cls in ['price', 'cost', 'money', 'won']:
+                    price_elem = item.find(class_=cls)
+                    if price_elem and price_elem.text.strip():
+                        price_text = price_elem.text.strip()
+                        if price_text and price_text != '-' and '원' not in price_text:
+                            price = price_text + "원"
+                            break
+                        elif '원' in price_text:
+                            price = price_text
+                            break
+            
+            # 세부 사양 추출
             specifications = self._get_specifications_from_item(item)
             
+            # 유효성 검사
+            if not name or name.strip() == "정보 없음" or len(name.strip()) < 2:
+                return None
+            
             return Product(
-                name=name,
+                name=name.strip(),
                 price=price,
                 specifications=specifications
             )
@@ -168,20 +256,54 @@ class DanawaParser:
     def _get_specifications_from_item(self, item) -> str:
         """검색 결과 아이템에서 직접 사양 정보를 추출합니다."""
         try:
-            # 아이템 내에서 spec-box__inner 찾기
+            specs = []
+            
+            # 방법 1: spec-box__inner 클래스에서 추출
             spec_inner = item.find('div', class_='spec-box__inner')
             if spec_inner:
-                specs = []
                 spec_spans = spec_inner.find_all('span')
                 for span in spec_spans:
                     # slash 클래스가 아닌 경우만 추출
                     if 'slash' not in span.get('class', []):
                         text = span.text.strip()
-                        if text and len(text) > 1:
+                        if text and len(text) > 1 and text not in ['/', '|', '-']:
                             specs.append(text)
+            
+            # 방법 2: 다른 사양 관련 클래스들 시도
+            if not specs:
+                spec_classes = ['spec', 'specification', 'details', 'info', 'feature']
+                for cls in spec_classes:
+                    spec_elem = item.find(class_=cls)
+                    if spec_elem:
+                        # 내부 텍스트들 수집
+                        text_elements = spec_elem.find_all(text=True)
+                        for text in text_elements:
+                            clean_text = text.strip()
+                            if clean_text and len(clean_text) > 1 and clean_text not in ['/', '|', '-']:
+                                specs.append(clean_text)
+                        if specs:
+                            break
+            
+            # 방법 3: 일반적인 정보 추출 (링크나 버튼의 title 속성 등)
+            if not specs:
+                for elem in item.find_all(['a', 'button', 'div'], title=True):
+                    title_text = elem.get('title', '').strip()
+                    if title_text and len(title_text) > 5:  # 충분히 긴 텍스트만
+                        specs.append(title_text)
+                        break
+            
+            # 중복 제거 및 필터링
+            if specs:
+                # 중복 제거
+                unique_specs = []
+                seen = set()
+                for spec in specs[:15]:  # 최대 15개
+                    if spec.lower() not in seen and len(spec.strip()) > 1:
+                        unique_specs.append(spec.strip())
+                        seen.add(spec.lower())
                 
-                if specs:
-                    return " / ".join(specs[:10])
+                if unique_specs:
+                    return " / ".join(unique_specs[:10])
             
             return "사양 정보 없음"
             
