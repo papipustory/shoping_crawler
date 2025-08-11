@@ -24,26 +24,22 @@ class DanawaParser:
         "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
     }
 
-    # 제품 파싱 시 후보 셀렉터들(사이트 구조 변화 대비)
-    SELECTOR_CANDIDATES = {
-        "item": [
-            "div.product_item",
-            "div.product-list__item",
-            "li.search_prod_item",
-            "div.prod_item",
+    # 제품 파싱 셀렉터 (새 구조 반영)
+    SELECTORS = {
+        "items_strict": 'ul#productListArea_list > li.goods-list__item[data-itemtype="standard"]',
+        "items_loose": [
+            "li.goods-list__item[data-itemtype='standard']",
+            "li.goods-list__item",
+            "div.goods-list__item",
         ],
-        "name": [
-            "div.tit a", "p.tit a", "a.prod_name", "a.link", "a.name"
-        ],
-        "price": [
-            "div.price strong", "em.prc_c", "span.num", "strong.price_num"
-        ],
-        "spec": [
-            "div.spec_list", "ul.spec_list", "p.spec", "div.spec"
-        ],
+        "name": "span.goods-list__title",
+        "price": "div.goods-list__price em.number",
+        # 간단/상세 스펙 모두 대응. 보이는 쪽(data-desctype='simple') 우선
+        "spec_simple": "div.spec-box__inner[data-desctype='simple']",
+        "spec_detail": "div.spec-box__inner[data-desctype='detail']",
     }
 
-    def __init__(self, delay: float = 0.8):
+    def __init__(self, delay: float = 0.6):
         self.session = requests.Session()
         self.session.headers.update(self.HEADERS)
         self.delay = delay
@@ -59,8 +55,7 @@ class DanawaParser:
         try:
             resp = self.session.get(url, params=params, timeout=20, allow_redirects=True)
             resp.raise_for_status()
-            # 실제 최종 요청 URL 저장(파라미터 포함)
-            self.last_request_url = resp.url
+            self.last_request_url = resp.url  # 최종 URL 저장
             return resp
         except requests.RequestException as e:
             print(f"[HTTP ERROR] GET {url} params={params} -> {e}")
@@ -83,75 +78,73 @@ class DanawaParser:
         self.last_html = resp.text
         soup = BeautifulSoup(resp.text, "lxml")
 
-        # 1) 명시적 maker 탭 먼저 시도
+        # 1) maker 관련 탭에서 직접 추출
         options = self._extract_from_known_tabs(soup)
         if options:
             return options
 
-        # 2) 제목 텍스트(제조사/브랜드 등) 기반으로 주변 블록에서 추출
+        # 2) 제목 텍스트(제조사/브랜드 등) 근처에서 추출
         options = self._extract_from_heading_blocks(soup)
         return options
 
+    def _collect_options_from_container(self, container, out: List[Dict]):
+        if not container:
+            return
+        # button[data-optioncode]
+        for b in container.select("button"):
+            name = (b.get("data-optionname") or b.get_text(strip=True) or "").strip()
+            code = (
+                b.get("data-optioncode")
+                or b.get("data-value")
+                or b.get("value")
+                or ""
+            ).strip()
+            if code.isdigit() and name:
+                out.append({"category": "제조사", "name": name, "code": code})
+
+        # input[type=checkbox] + label
+        for inp in container.select('input[type="checkbox"]'):
+            code = (inp.get("value") or "").strip()
+            if not code.isdigit():
+                continue
+            name = ""
+            inp_id = inp.get("id")
+            if inp_id:
+                lab = container.select_one(f'label[for="{inp_id}"]')
+                if lab and lab.get_text(strip=True):
+                    name = lab.get_text(strip=True)
+            if not name:
+                name = (inp.get("data-name") or inp.get("title") or "").strip()
+            if not name:
+                parent_text = inp.find_parent().get_text(" ", strip=True) if inp.find_parent() else ""
+                name = parent_text.split()[0] if parent_text else ""
+            if name and code.isdigit():
+                out.append({"category": "제조사", "name": name, "code": code})
+
     def _extract_from_known_tabs(self, soup: BeautifulSoup) -> List[Dict]:
         options: List[Dict] = []
-
-        def _collect_from_container(container):
-            if not container:
-                return
-            # button 기반
-            for b in container.select("button"):
-                name = (b.get("data-optionname") or b.get_text(strip=True) or "").strip()
-                code = (
-                    b.get("data-optioncode")
-                    or b.get("data-value")
-                    or b.get("value")
-                    or ""
-                ).strip()
-                if code.isdigit() and name:
-                    options.append({"category": "제조사", "name": name, "code": code})
-            # input[type=checkbox] 기반
-            for inp in container.select('input[type="checkbox"]'):
-                code = (inp.get("value") or "").strip()
-                if not code.isdigit():
-                    continue
-                name = ""
-                # for 연결된 label
-                inp_id = inp.get("id")
-                if inp_id:
-                    lab = container.select_one(f'label[for="{inp_id}"]')
-                    if lab and lab.get_text(strip=True):
-                        name = lab.get_text(strip=True)
-                if not name:
-                    name = (inp.get("data-name") or inp.get("title") or "").strip()
-                if not name:
-                    # 근처 텍스트 보정
-                    parent_text = inp.find_parent().get_text(" ", strip=True) if inp.find_parent() else ""
-                    name = parent_text.split()[0] if parent_text else ""
-                if name and code.isdigit():
-                    options.append({"category": "제조사", "name": name, "code": code})
-
         known_ids = ["makerBrandTab", "makerOptionTab", "makerTab", "brandTab"]
         for kid in known_ids:
             cont = soup.find(id=kid)
-            _collect_from_container(cont)
+            self._collect_options_from_container(cont, options)
             if options:
                 self.last_option_html = str(cont) if cont else ""
                 break
 
-        # id가 없을 수도 있으니 class에 maker/brand 포함된 컨테이너도 탐색
         if not options:
+            # class에 maker/brand 포함된 컨테이너도 탐색
             conts = []
             for div in soup.find_all(True, {"class": True}):
                 classes = " ".join(div.get("class", [])).lower()
                 if "maker" in classes or "brand" in classes:
                     conts.append(div)
             for c in conts[:3]:
-                _collect_from_container(c)
+                self._collect_options_from_container(c, options)
                 if options:
                     self.last_option_html = str(c)
                     break
 
-        # 정리: 숫자코드만, 중복 제거(code 기준)
+        # 정리(코드 기준 중복 제거)
         uniq = {}
         for o in options:
             if o["code"].isdigit() and o["name"]:
@@ -159,69 +152,28 @@ class DanawaParser:
         return list(uniq.values())
 
     def _extract_from_heading_blocks(self, soup: BeautifulSoup) -> List[Dict]:
-        """
-        '제조사', '브랜드', '제조사/브랜드' 같은 제목 근처에서 옵션 추출
-        """
         options: List[Dict] = []
-
-        def _collect_from_container(container):
-            if not container:
-                return
-            # button
-            for b in container.select("button"):
-                name = (b.get("data-optionname") or b.get_text(strip=True) or "").strip()
-                code = (
-                    b.get("data-optioncode")
-                    or b.get("data-value")
-                    or b.get("value")
-                    or ""
-                ).strip()
-                if code.isdigit() and name:
-                    options.append({"category": "제조사", "name": name, "code": code})
-            # input[type=checkbox]
-            for inp in container.select('input[type="checkbox"]'):
-                code = (inp.get("value") or "").strip()
-                if not code.isdigit():
-                    continue
-                name = ""
-                inp_id = inp.get("id")
-                if inp_id:
-                    lab = container.select_one(f'label[for="{inp_id}"]')
-                    if lab and lab.get_text(strip=True):
-                        name = lab.get_text(strip=True)
-                if not name:
-                    name = (inp.get("data-name") or inp.get("title") or "").strip()
-                if not name:
-                    parent_text = inp.find_parent().get_text(" ", strip=True) if inp.find_parent() else ""
-                    name = parent_text.split()[0] if parent_text else ""
-                if name and code.isdigit():
-                    options.append({"category": "제조사", "name": name, "code": code})
-
-        # 제목 후보 텍스트
         title_re = re.compile(r"(제조사\s*\/\s*브랜드|제조사|브랜드)")
-        title_nodes = [t for t in soup.find_all(text=title_re)]
+        title_nodes = [t for t in soup.find_all(string=title_re)]
 
         for t in title_nodes:
-            title_el = t.parent
-            if not title_el:
+            el = t.parent
+            if not el:
                 continue
-
-            # 후보 컨테이너: 제목 자신 / 부모 / 다음 형제 / 부모의 다음 형제
             candidates = [
-                title_el,
-                title_el.parent if title_el else None,
-                title_el.find_next_sibling() if title_el else None,
-                title_el.parent.find_next_sibling() if title_el and title_el.parent else None,
+                el,
+                el.parent if el else None,
+                el.find_next_sibling() if el else None,
+                el.parent.find_next_sibling() if el and el.parent else None,
             ]
             for cand in [c for c in candidates if c]:
-                _collect_from_container(cand)
+                self._collect_options_from_container(cand, options)
                 if options:
                     self.last_option_html = str(cand)
                     break
             if options:
                 break
 
-        # 정리: 숫자 코드만, 중복 제거
         uniq = {}
         for o in options:
             if o["code"].isdigit() and o["name"]:
@@ -229,12 +181,12 @@ class DanawaParser:
         return list(uniq.values())
 
     # -----------------------------
-    # 제품 검색
+    # 제품 검색 (goods-list 기반)
     # -----------------------------
     def _build_params(self, keyword: str, maker_codes_csv: Optional[str]) -> Dict:
         params = {"k1": keyword}
         if maker_codes_csv:
-            params["maker"] = maker_codes_csv  # 쉼표 그대로 두면 requests가 인코딩 처리
+            params["maker"] = maker_codes_csv  # 쉼표 그대로 → requests가 인코딩
         return params
 
     def search_products(self, keyword: str, maker_codes: Optional[List[str]] = None) -> List[Dict]:
@@ -247,46 +199,47 @@ class DanawaParser:
         if not resp:
             return []
 
+        self.last_html = resp.text
         soup = BeautifulSoup(resp.text, "lxml")
 
-        # 아이템 컨테이너 후보
-        item_nodes = []
-        for css in self.SELECTOR_CANDIDATES["item"]:
-            item_nodes = soup.select(css)
-            if item_nodes:
-                break
+        # 1) 엄격 셀렉터
+        item_nodes = soup.select(self.SELECTORS["items_strict"])
+        # 2) 없으면 루즈 셀렉터들 시도
+        if not item_nodes:
+            for css in self.SELECTORS["items_loose"]:
+                item_nodes = soup.select(css)
+                if item_nodes:
+                    break
 
         results = []
         for node in item_nodes:
+            # 광고/비표준 항목 제외
+            itemtype = node.get("data-itemtype", "")
+            if itemtype and itemtype != "standard":
+                continue
+
             # 제품명
-            name = ""
-            for css in self.SELECTOR_CANDIDATES["name"]:
-                el = node.select_one(css)
-                if el and el.get_text(strip=True):
-                    name = el.get_text(strip=True)
-                    break
+            name_el = node.select_one(self.SELECTORS["name"])
+            name = name_el.get_text(strip=True) if name_el else ""
 
             # 가격
-            price_text = ""
-            for css in self.SELECTOR_CANDIDATES["price"]:
-                el = node.select_one(css)
-                if el and el.get_text(strip=True):
-                    price_text = el.get_text(strip=True)
-                    break
+            price_el = node.select_one(self.SELECTORS["price"])
+            price_text = price_el.get_text(strip=True) if price_el else ""
             price = self._to_int_price(price_text)
 
-            # 스펙
+            # 스펙: simple 우선, 없으면 detail
+            spec_el = node.select_one(self.SELECTORS["spec_simple"]) or node.select_one(self.SELECTORS["spec_detail"])
             spec_text = ""
-            for css in self.SELECTOR_CANDIDATES["spec"]:
-                el = node.select_one(css)
-                if el:
-                    if el.select("*"):
-                        spec_text = " ".join([t.get_text(" ", strip=True) for t in el.select("*")])
-                    else:
-                        spec_text = el.get_text(" ", strip=True)
-                    break
+            if spec_el:
+                spans = [s.get_text(" ", strip=True) for s in spec_el.select("span") if s.get_text(strip=True)]
+                if not spans:
+                    # 자식 span이 없으면 통째로 텍스트
+                    spec_text = spec_el.get_text(" ", strip=True)
+                else:
+                    # 중간에 들어가는 슬래시는 UI용이니, 값만 '/'로 재구성
+                    spec_text = " / ".join([s for s in spans if s != "/"])
 
-            if not name and not price and not spec_text:
+            if not (name or price_text or spec_text):
                 continue
 
             results.append({
@@ -305,11 +258,12 @@ class DanawaParser:
     def _to_int_price(text: str) -> Optional[int]:
         if not text:
             return None
-        nums = re.findall(r"\d+", text.replace(",", ""))
-        if not nums:
+        # "1,939,210" → 1939210
+        digits = re.findall(r"\d+", text.replace(",", ""))
+        if not digits:
             return None
         try:
-            return int("".join(nums))
+            return int("".join(digits))
         except ValueError:
             return None
 
@@ -335,9 +289,6 @@ class DanawaParser:
         return output
 
     def get_debug_dump(self) -> Dict[str, Optional[bytes]]:
-        """
-        스트림릿에서 다운로드 버튼에 연결할 수 있도록 Bytes 반환
-        """
         return {
             "page_html": self.last_html.encode("utf-8") if self.last_html else None,
             "option_block_html": self.last_option_html.encode("utf-8") if self.last_option_html else None,
@@ -361,5 +312,5 @@ if __name__ == "__main__":
     makers = [m.strip() for m in args.maker.split(",") if m.strip().isdigit()] if args.maker else []
     res = dn.search_products(args.keyword, makers if makers else None)
     print("[결과수]", len(res))
-    if res[:5]:
-        print(res[:5])
+    for r in res[:5]:
+        print(r)
