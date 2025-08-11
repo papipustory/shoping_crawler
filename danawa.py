@@ -63,21 +63,21 @@ class DanawaParser:
                     # 실제 제조사 코드를 찾기 위해 링크에서 cateCode나 maker 파라미터 추출
                     actual_code = None
                     
-                    # 버튼 근처에서 링크 찾기
-                    parent_li = button.find_parent('li')
-                    if parent_li:
-                        # onclick 이벤트나 data 속성에서 실제 코드 찾기
-                        onclick = button.get('onclick')
-                        if onclick and 'cateCode=' in onclick:
-                            import re
-                            match = re.search(r'cateCode=(\d+)', onclick)
-                            if match:
-                                actual_code = match.group(1)
-                        elif onclick and 'maker=' in onclick:
-                            import re
-                            match = re.search(r'maker=(\d+)', onclick)
-                            if match:
-                                actual_code = match.group(1)
+                    # 버튼의 onclick 이벤트에서 cateCode 찾기 (우선순위)
+                    onclick = button.get('onclick')
+                    if onclick:
+                        import re
+                        # cateCode를 우선적으로 찾기
+                        cate_match = re.search(r'cateCode=(\d+)', onclick)
+                        if cate_match:
+                            actual_code = cate_match.group(1)
+                            print(f"cateCode 찾음: {actual_code}")
+                        else:
+                            # cateCode가 없으면 maker 찾기
+                            maker_match = re.search(r'maker=(\d+)', onclick)
+                            if maker_match:
+                                actual_code = maker_match.group(1)
+                                print(f"maker 코드 찾음: {actual_code}")
                     
                     # 실제 코드를 찾지 못했으면 data-optioncode 사용 (하지만 숫자로 변환 시도)
                     if not actual_code and option_code:
@@ -163,14 +163,11 @@ class DanawaParser:
         if option_filter:
             key, value = option_filter.split('=')
             
-            # 다나와 모바일에서 사용하는 다양한 제조사 필터 파라미터 시도
+            # 다나와 모바일에서 사용하는 제조사 필터 파라미터
             if key == 'maker':
-                # 여러 방식으로 제조사 필터 적용
-                params['maker'] = value
-                params['makerNo'] = value  # 대안 1
-                params['brandCd'] = value  # 대안 2
-                params['brandCode'] = value  # 대안 3
-                params['cateCode'] = value  # 카테고리 코드 (실제 제조사 코드)
+                # cateCode가 실제 제조사 코드라고 하셨으니 이것만 사용
+                params['cateCode'] = value
+                print(f"제조사 필터: cateCode={value} 적용")
                 
             params[key] = value
             print(f"제조사 필터 적용: {key}={value}")
