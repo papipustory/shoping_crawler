@@ -3,6 +3,8 @@ import requests
 from bs4 import BeautifulSoup
 import pandas as pd
 import re
+import json
+import time
 from typing import List, Dict, Optional
 from io import BytesIO
 
@@ -23,6 +25,7 @@ class DanawaParser:
             "Chrome/120.0.0.0 Mobile Safari/537.36"
         ),
         "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
+        "X-Requested-With": "XMLHttpRequest"
     }
 
     # 제품 파싱 셀렉터 (goods-list 구조)
@@ -195,75 +198,147 @@ class DanawaParser:
         return list(uniq.values())
 
     # ---------------- 제품 검색 ----------------
-    def _build_params(self, keyword: str, maker_codes_csv: Optional[str]) -> Dict:
+    def _build_params(self, keyword: str, maker_codes_csv: Optional[str], sort_type: str = "saveDESC") -> Dict:
         # keyword와 k1 둘 다 넣어 호환성 확보
-        params = {"k1": keyword, "keyword": keyword}
+        params = {
+            "keyword": keyword,
+            "originalQuery": keyword,
+            "keywordType": "1",
+            "sort": sort_type,
+            "volumeType": "allvs",
+            "page": "1",
+            "limit": "40",
+            "boost": "true"
+        }
         if maker_codes_csv:
             # 일부 페이지는 maker, 일부는 brand로 동작 → 둘 다 넣어 안전빵
             params["maker"] = maker_codes_csv
             params["brand"] = maker_codes_csv
         return params
 
-    def search_products(self, keyword: str, maker_codes: Optional[List[str]] = None) -> List[Dict]:
+    def _parse_product_page(self, soup: BeautifulSoup) -> Dict:
+        """제품 상세 페이지의 BeautifulSoup 객체에서 가격과 스펙을 파싱합니다."""
+        details = {"가격": "", "가격(원문)": "", "스펙": ""}
+        
+        # 가격 파싱
+        price_el = soup.select_one("em.text__num")
+        if price_el:
+            price_text = price_el.get_text(strip=True)
+            details["가격(원문)"] = price_text
+            details["가격"] = self._to_int_price(price_text)
+
+        # 스펙 파싱
+        spec_table = soup.find("table", class_="spec_tbl")
+        if spec_table:
+            specs = []
+            for row in spec_table.find_all("tr"):
+                th = row.find("th")
+                td = row.find("td")
+                if th and td:
+                    spec_key = th.get_text(" ", strip=True)
+                    spec_value = td.get_text(" ", strip=True)
+                    specs.append(f"{spec_key}: {spec_value}")
+            details["스펙"] = " / ".join(specs)
+            
+        return details
+
+    def _get_product_details(self, product_url: str) -> Dict:
+        """제품 상세 페이지 URL을 방문하여 가격과 스펙을 가져옵니다."""
+        if not product_url.startswith("http"):
+            product_url = "https:" + product_url
+
+        print(f"[상세] {product_url} 페이지에서 정보 수집 중...")
+        resp = self._get(product_url)
+        if not resp:
+            return {}
+        
+        time.sleep(self.delay)
+        soup = BeautifulSoup(resp.text, "lxml")
+        return self._parse_product_page(soup)
+
+    def search_products(self, keyword: str, maker_codes: Optional[List[str]] = None, sort_type: str = "saveDESC", limit: int = 5) -> List[Dict]:
         maker_csv = None
         if maker_codes:
-            # 숫자 강제하지 않음. 그대로 쉼표 연결(예: '702,4213' or '삼성전자')
             codes = [str(c).strip() for c in maker_codes if str(c).strip()]
             maker_csv = ",".join(codes) if codes else None
 
-        resp = self._get(self.BASE_URL, params=self._build_params(keyword, maker_csv))
+        params = self._build_params(keyword, maker_csv, sort_type)
+        print(f"[검색] 요청 URL: {self.BASE_URL}?{'&'.join([f'{k}={v}' for k, v in params.items()])}")
+        
+        resp = self._get(self.BASE_URL, params=params)
         if not resp:
             return []
 
         self.last_html = resp.text
         soup = BeautifulSoup(resp.text, "lxml")
 
-        # 1) 엄격 셀렉터
-        item_nodes = soup.select(self.SELECTORS["items_strict"])
-        # 2) 없으면 루즈 셀렉터들 시도
-        if not item_nodes:
-            for css in self.SELECTORS["items_loose"]:
-                item_nodes = soup.select(css)
-                if item_nodes:
-                    break
-
+        # JSON-LD 데이터 우선 파싱
         results = []
-        for node in item_nodes:
-            # 광고/비표준 항목 제외
-            itemtype = node.get("data-itemtype", "")
-            if itemtype and itemtype != "standard":
-                continue
+        json_ld_script = soup.find("script", {"type": "application/ld+json"})
+        if json_ld_script:
+            try:
+                json_text = json_ld_script.string or ""
+                if json_text.strip():
+                    data = json.loads(json_text)
+                    if data and "itemListElement" in data:
+                        items = data["itemListElement"]
+                        
+                        # 제조사 필터링 (클라이언트 사이드)
+                        if maker_codes:
+                            # get_search_options는 HTTP 요청을 다시 보내므로, 여기서는 제품명으로만 필터링
+                            # 더 정확한 방법은 제조사 코드와 이름을 미리 매핑해두는 것
+                            # 지금은 간단하게 제품명에 제조사 이름이 포함되는지 체크
+                            opts = self.get_search_options(keyword)
+                            code_to_name = {opt['code']: opt['name'] for opt in opts}
+                            maker_names = [code_to_name.get(code, "").upper() for code in maker_codes if code in code_to_name]
+                            
+                            if maker_names:
+                                filtered_items = []
+                                for item in items:
+                                    item_name = item.get("name", "").upper()
+                                    if any(maker_name in item_name for maker_name in maker_names):
+                                        filtered_items.append(item)
+                                items = filtered_items
 
-            # 제품명
-            name_el = node.select_one(self.SELECTORS["name"])
-            name = name_el.get_text(strip=True) if name_el else ""
+                        for item in items[:limit]:
+                            product_info = {
+                                "제품명": item.get("name", ""),
+                                "URL": item.get("url", ""),
+                                "가격": "",
+                                "가격(원문)": "정보 없음",
+                                "스펙": ""
+                            }
+                            if product_info["URL"]:
+                                details = self._get_product_details(product_info["URL"])
+                                product_info.update(details)
+                            
+                            results.append(product_info)
 
-            # 가격
-            price_el = node.select_one(self.SELECTORS["price"])
-            price_text = price_el.get_text(strip=True) if price_el else ""
-            price = self._to_int_price(price_text)
+                        print(f"[성공] JSON-LD에서 {len(results)}개 제품 처리 완료.")
+                        return results
+            except (json.JSONDecodeError, TypeError) as e:
+                print(f"[오류] JSON-LD 파싱 실패: {e}")
 
-            # 스펙: simple 우선, 없으면 detail
-            spec_el = node.select_one(self.SELECTORS["spec_simple"]) or node.select_one(self.SELECTORS["spec_detail"])
-            spec_text = ""
-            if spec_el:
-                spans = [s.get_text(" ", strip=True) for s in spec_el.select("span") if s.get_text(strip=True)]
-                if not spans:
-                    spec_text = spec_el.get_text(" ", strip=True)
-                else:
-                    # 중간 구분자(span.slash)는 제거하고 값만 '/'로 합침
-                    spec_text = " / ".join([s for s in spans if s != "/"])
+        print("[경고] JSON-LD 파싱에 실패하여 제품 정보를 가져올 수 없습니다.")
+        return []
 
-            if not (name or price_text or spec_text):
-                continue
+    def search_products_with_sorting(self, keyword: str, maker_codes: Optional[List[str]] = None, limit: int = 5) -> Dict:
+        """
+        인기순과 상품평순으로 각각 검색해서 지정된 개수만큼 결과를 반환
+        """
+        results = {}
+        
+        if maker_codes:
+            print(f"[필터] 적용할 제조사 코드: {', '.join(maker_codes)}")
 
-            results.append({
-                "제품명": name,
-                "가격": price if price is not None else "",
-                "가격(원문)": price_text,
-                "스펙": spec_text
-            })
-
+        print(f"\n--- 인기순 (saveDESC) 검색 ---")
+        popular_results = self.search_products(keyword, maker_codes, "saveDESC", limit)
+        results["인기순"] = popular_results
+        
+        print(f"\n--- 상품평 많은순 (opinionDESC) 검색 ---")
+        review_results = self.search_products(keyword, maker_codes, "opinionDESC", limit)
+        results["상품평순"] = review_results
+        
         return results
 
     # ---------------- 유틸 ----------------
@@ -311,17 +386,32 @@ class DanawaParser:
 # CLI 테스트용
 if __name__ == "__main__":
     import argparse
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--keyword", type=str, required=True)
-    parser.add_argument("--maker", type=str, default="")
+    parser = argparse.ArgumentParser(description="다나와 상품 정보를 크롤링합니다.")
+    parser.add_argument("--keyword", type=str, required=True, help="검색할 키워드")
+    parser.add_argument("--maker", type=str, default="", help="제조사 코드 (쉼표로 구분)")
+    parser.add_argument("--limit", type=int, default=5, help="각 정렬별로 가져올 결과 개수")
     args = parser.parse_args()
 
     dn = DanawaParser()
-    opts = dn.get_search_options(args.keyword)
-    print("[옵션수]", len(opts), opts[:10])
-
+    
+    # 제조사 코드 파싱
     makers = [m.strip() for m in args.maker.split(",") if m.strip()] if args.maker else []
-    res = dn.search_products(args.keyword, makers if makers else None)
-    print("[결과수]", len(res))
-    for r in res[:5]:
-        print(r)
+    
+    # 인기순/상품평순 검색
+    print(f"\n=== '{args.keyword}' 제품 검색 시작 (각 {args.limit}개) ===")
+    results = dn.search_products_with_sorting(args.keyword, makers if makers else None, args.limit)
+    
+    for sort_type, products in results.items():
+        print(f"\n--- {sort_type} ({len(products)}개) ---")
+        if not products:
+            print("결과 없음")
+            continue
+        for i, product in enumerate(products, 1):
+            print(f"{i}. {product.get('제품명', 'N/A')}")
+            print(f"   가격: {product.get('가격(원문)', 'N/A')}")
+            # 스펙이 길 수 있으므로 일부만 표시
+            spec_summary = product.get('스펙', 'N/A')
+            if len(spec_summary) > 150:
+                spec_summary = spec_summary[:150] + "..."
+            print(f"   스펙: {spec_summary}")
+            print()
