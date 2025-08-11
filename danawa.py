@@ -46,28 +46,44 @@ class DanawaParser:
             soup = BeautifulSoup(response.text, 'html.parser')
             options = []
             
-            # 제조사 옵션 탭에서 제조사 찾기 (실제 HTML 구조 기반)
-            maker_tab = soup.find('div', id='makerOptionTab')
+            # 제조사/브랜드 탭에서 제조사 찾기 (검색된 키워드에 맞는 제조사들)
+            maker_tab = soup.find('div', id='makerBrandTab')
             if maker_tab:
                 # 제조사 버튼들 찾기 - 정확한 클래스명 사용 
                 buttons = maker_tab.find_all('button', class_='button__option')
                 
                 print(f"찾은 제조사 버튼 수: {len(buttons)}")
                 
+                # makerBrandTab에서 제조사 이름들 수집
+                brand_names = []
                 for button in buttons:
                     option_name = button.get('data-optionname')
-                    option_code = button.get('data-optioncode')
+                    if option_name:
+                        brand_names.append(option_name)
+                        print(f"makerBrandTab에서 찾은 제조사: {option_name}")
+                
+                # makerOptionTab에서 실제 코드 찾기
+                option_tab = soup.find('div', id='makerOptionTab')
+                if option_tab:
+                    option_buttons = option_tab.find_all('button', class_='button__option')
+                    print(f"makerOptionTab에서 찾은 버튼 수: {len(option_buttons)}")
                     
-                    print(f"제조사: {option_name}, 코드: {option_code}")
-                    
-                    # data-optioncode가 실제 maker 코드 (dibug.txt 확인: 삼성전자=702, WD=4213)
-                    if option_name and option_code and option_code.isdigit():
-                        options.append({
-                            'category': '제조사',
-                            'name': option_name,
-                            'code': option_code
-                        })
-                        print(f"추가됨: {option_name} -> {option_code}")
+                    for opt_button in option_buttons:
+                        opt_name = opt_button.get('data-optionname')
+                        opt_code = opt_button.get('data-optioncode')
+                        
+                        print(f"makerOptionTab - 제조사: {opt_name}, 코드: {opt_code}")
+                        
+                        # makerBrandTab에 있는 제조사만 추가
+                        if opt_name in brand_names and opt_code and opt_code.isdigit():
+                            options.append({
+                                'category': '제조사',
+                                'name': opt_name,
+                                'code': opt_code
+                            })
+                            print(f"매핑 완료: {opt_name} -> {opt_code}")
+                else:
+                    print("makerOptionTab을 찾을 수 없음")
             
             # 옵션을 찾지 못한 경우 기본 제조사 목록 사용
             if not options:
