@@ -9,10 +9,11 @@ from io import BytesIO
 class DanawaParser:
     """
     다나와 검색 파서 (모바일 검색 페이지 기준)
-    - 키워드로 검색 페이지를 열어 '제조사/브랜드' 옵션(숫자 code)만 추출
-    - 제조사 코드(maker=702,4213,...)를 붙여 다시 검색
-    - 제품명/가격/스펙을 파싱하여 표로 반환
-    - 디버그: 마지막 요청 URL, 전체 HTML, 옵션 블록 HTML 저장
+    - 키워드 페이지에서 '제조사/브랜드' 옵션 추출
+      · 체크박스/버튼/링크 모두 지원, 숫자 아닌 코드(예: '삼성전자')도 허용
+    - maker/brand 파라미터로 필터 검색
+    - 제품명/가격/스펙 파싱 (goods-list 구조)
+    - 디버그: 요청 URL/페이지 HTML/옵션 블록 HTML 저장
     """
     BASE_URL = "https://search.danawa.com/mobile/dsearch.php"
     HEADERS = {
@@ -24,7 +25,7 @@ class DanawaParser:
         "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
     }
 
-    # 제품 파싱 셀렉터 (새 구조 반영)
+    # 제품 파싱 셀렉터 (goods-list 구조)
     SELECTORS = {
         "items_strict": 'ul#productListArea_list > li.goods-list__item[data-itemtype="standard"]',
         "items_loose": [
@@ -34,7 +35,6 @@ class DanawaParser:
         ],
         "name": "span.goods-list__title",
         "price": "div.goods-list__price em.number",
-        # 간단/상세 스펙 모두 대응. 보이는 쪽(data-desctype='simple') 우선
         "spec_simple": "div.spec-box__inner[data-desctype='simple']",
         "spec_detail": "div.spec-box__inner[data-desctype='detail']",
     }
@@ -43,33 +43,25 @@ class DanawaParser:
         self.session = requests.Session()
         self.session.headers.update(self.HEADERS)
         self.delay = delay
-        # 디버그 필드
         self.last_request_url: Optional[str] = None
         self.last_html: Optional[str] = None
         self.last_option_html: Optional[str] = None
 
-    # -----------------------------
-    # HTTP
-    # -----------------------------
+    # ---------------- HTTP ----------------
     def _get(self, url: str, params: Optional[Dict] = None) -> Optional[requests.Response]:
         try:
             resp = self.session.get(url, params=params, timeout=20, allow_redirects=True)
             resp.raise_for_status()
-            self.last_request_url = resp.url  # 최종 URL 저장
+            self.last_request_url = resp.url
             return resp
         except requests.RequestException as e:
             print(f"[HTTP ERROR] GET {url} params={params} -> {e}")
             return None
 
-    # -----------------------------
-    # 옵션 추출
-    # -----------------------------
+    # ------------- 옵션 추출 -------------
     def get_search_options(self, keyword: str) -> List[Dict]:
-        """
-        검색 키워드 페이지에서 '제조사/브랜드' 옵션(숫자 code)만 수집.
-        fallback(기본 목록) 없음: 페이지에 없으면 빈 목록 반환.
-        """
-        resp = self._get(self.BASE_URL, params={"k1": keyword})
+        """페이지에 노출된 제조사/브랜드 수집 (숫자/문자 코드 모두 허용)."""
+        resp = self._get(self.BASE_URL, params={"k1": keyword, "keyword": keyword})
         if not resp:
             self.last_html = None
             self.last_option_html = None
@@ -78,13 +70,18 @@ class DanawaParser:
         self.last_html = resp.text
         soup = BeautifulSoup(resp.text, "lxml")
 
-        # 1) maker 관련 탭에서 직접 추출
+        # 1) maker 관련 탭/컨테이너
         options = self._extract_from_known_tabs(soup)
         if options:
             return options
 
-        # 2) 제목 텍스트(제조사/브랜드 등) 근처에서 추출
+        # 2) 제목(제조사/브랜드) 근처 블록
         options = self._extract_from_heading_blocks(soup)
+        if options:
+            return options
+
+        # 3) maker 파라미터가 걸린 링크에서 추출 (예외 케이스)
+        options = self._extract_from_links_with_maker(soup)
         return options
 
     def _collect_options_from_container(self, container, out: List[Dict]):
@@ -93,19 +90,15 @@ class DanawaParser:
         # button[data-optioncode]
         for b in container.select("button"):
             name = (b.get("data-optionname") or b.get_text(strip=True) or "").strip()
-            code = (
-                b.get("data-optioncode")
-                or b.get("data-value")
-                or b.get("value")
-                or ""
-            ).strip()
-            if code.isdigit() and name:
+            code = (b.get("data-optioncode") or b.get("data-value") or b.get("value") or "").strip()
+            # 숫자 강제하지 않음 — 그대로 사용 (예: '삼성전자')
+            if code and name:
                 out.append({"category": "제조사", "name": name, "code": code})
 
         # input[type=checkbox] + label
         for inp in container.select('input[type="checkbox"]'):
             code = (inp.get("value") or "").strip()
-            if not code.isdigit():
+            if not code:
                 continue
             name = ""
             inp_id = inp.get("id")
@@ -118,7 +111,7 @@ class DanawaParser:
             if not name:
                 parent_text = inp.find_parent().get_text(" ", strip=True) if inp.find_parent() else ""
                 name = parent_text.split()[0] if parent_text else ""
-            if name and code.isdigit():
+            if name and code:
                 out.append({"category": "제조사", "name": name, "code": code})
 
     def _extract_from_known_tabs(self, soup: BeautifulSoup) -> List[Dict]:
@@ -144,11 +137,12 @@ class DanawaParser:
                     self.last_option_html = str(c)
                     break
 
-        # 정리(코드 기준 중복 제거)
+        # 정리(코드+이름 기준 중복 제거)
         uniq = {}
         for o in options:
-            if o["code"].isdigit() and o["name"]:
-                uniq[o["code"]] = {"category": "제조사", "name": o["name"], "code": o["code"]}
+            key = (o["code"], o["name"])
+            if o["code"] and o["name"] and key not in uniq:
+                uniq[key] = {"category": "제조사", "name": o["name"], "code": o["code"]}
         return list(uniq.values())
 
     def _extract_from_heading_blocks(self, soup: BeautifulSoup) -> List[Dict]:
@@ -176,23 +170,45 @@ class DanawaParser:
 
         uniq = {}
         for o in options:
-            if o["code"].isdigit() and o["name"]:
-                uniq[o["code"]] = {"category": "제조사", "name": o["name"], "code": o["code"]}
+            key = (o["code"], o["name"])
+            if o["code"] and o["name"] and key not in uniq:
+                uniq[key] = {"category": "제조사", "name": o["name"], "code": o["code"]}
         return list(uniq.values())
 
-    # -----------------------------
-    # 제품 검색 (goods-list 기반)
-    # -----------------------------
+    def _extract_from_links_with_maker(self, soup: BeautifulSoup) -> List[Dict]:
+        options: List[Dict] = []
+        for a in soup.select('a[href*="maker="]'):
+            href = a.get("href", "")
+            m = re.search(r"[?&]maker=([^&#]+)", href)
+            if not m:
+                continue
+            code = m.group(1)
+            name = a.get_text(strip=True) or "제조사"
+            if code:
+                options.append({"category": "제조사", "name": name, "code": code})
+        # 중복 제거
+        uniq = {}
+        for o in options:
+            key = (o["code"], o["name"])
+            if key not in uniq:
+                uniq[key] = o
+        return list(uniq.values())
+
+    # ---------------- 제품 검색 ----------------
     def _build_params(self, keyword: str, maker_codes_csv: Optional[str]) -> Dict:
-        params = {"k1": keyword}
+        # keyword와 k1 둘 다 넣어 호환성 확보
+        params = {"k1": keyword, "keyword": keyword}
         if maker_codes_csv:
-            params["maker"] = maker_codes_csv  # 쉼표 그대로 → requests가 인코딩
+            # 일부 페이지는 maker, 일부는 brand로 동작 → 둘 다 넣어 안전빵
+            params["maker"] = maker_codes_csv
+            params["brand"] = maker_codes_csv
         return params
 
     def search_products(self, keyword: str, maker_codes: Optional[List[str]] = None) -> List[Dict]:
         maker_csv = None
         if maker_codes:
-            codes = [c for c in maker_codes if str(c).isdigit()]
+            # 숫자 강제하지 않음. 그대로 쉼표 연결(예: '702,4213' or '삼성전자')
+            codes = [str(c).strip() for c in maker_codes if str(c).strip()]
             maker_csv = ",".join(codes) if codes else None
 
         resp = self._get(self.BASE_URL, params=self._build_params(keyword, maker_csv))
@@ -233,10 +249,9 @@ class DanawaParser:
             if spec_el:
                 spans = [s.get_text(" ", strip=True) for s in spec_el.select("span") if s.get_text(strip=True)]
                 if not spans:
-                    # 자식 span이 없으면 통째로 텍스트
                     spec_text = spec_el.get_text(" ", strip=True)
                 else:
-                    # 중간에 들어가는 슬래시는 UI용이니, 값만 '/'로 재구성
+                    # 중간 구분자(span.slash)는 제거하고 값만 '/'로 합침
                     spec_text = " / ".join([s for s in spans if s != "/"])
 
             if not (name or price_text or spec_text):
@@ -251,14 +266,11 @@ class DanawaParser:
 
         return results
 
-    # -----------------------------
-    # 유틸
-    # -----------------------------
+    # ---------------- 유틸 ----------------
     @staticmethod
     def _to_int_price(text: str) -> Optional[int]:
         if not text:
             return None
-        # "1,939,210" → 1939210
         digits = re.findall(r"\d+", text.replace(",", ""))
         if not digits:
             return None
@@ -306,10 +318,9 @@ if __name__ == "__main__":
 
     dn = DanawaParser()
     opts = dn.get_search_options(args.keyword)
-    print("[옵션수]", len(opts))
-    print(opts[:10])
+    print("[옵션수]", len(opts), opts[:10])
 
-    makers = [m.strip() for m in args.maker.split(",") if m.strip().isdigit()] if args.maker else []
+    makers = [m.strip() for m in args.maker.split(",") if m.strip()] if args.maker else []
     res = dn.search_products(args.keyword, makers if makers else None)
     print("[결과수]", len(res))
     for r in res[:5]:
