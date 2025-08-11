@@ -45,11 +45,11 @@ with col_btn:
             st.session_state.last_keyword = keyword.strip()
             with st.spinner("옵션 로딩 중..."):
                 options = parser.get_search_options(st.session_state.last_keyword)
-                # 안전: 비숫자 코드 제거 및 이름 공백 제거
+                # 페이지가 제공한 옵션만 사용(비숫자/공백 제거는 danawa.py에서 처리)
                 options = [
                     {"name": o["name"].strip(), "code": o["code"].strip(), "category": o.get("category", "제조사")}
                     for o in options
-                    if str(o.get("code", "")).isdigit() and o.get("name")
+                    if o.get("name") and str(o.get("code", "")).isdigit()
                 ]
                 st.session_state.options = options
                 st.session_state.name_to_code = {o["name"]: o["code"] for o in options}
@@ -59,9 +59,36 @@ with col_btn:
                 st.session_state.filter_text = ""
 
             if not options:
-                st.error("검색 옵션을 찾지 못했습니다. (기본 매핑도 비어 있음)")
+                st.info("이 키워드에는 선택 가능한 '제조사/브랜드' 옵션이 페이지에 노출되지 않았습니다.")
             else:
                 st.success(f"옵션 {len(options)}개 로드 완료.")
+
+            # 디버그 정보 섹션
+            dbg = parser.get_debug_dump()
+            with st.expander("🔎 디버그 정보 보기", expanded=False):
+                st.write("요청 URL:", (dbg["request_url"] or b"").decode("utf-8"))
+                st.write("찾은 옵션 수:", len(options))
+                if options:
+                    st.write("옵션 미리보기:", [f'{o["name"]}({o["code"]})' for o in options[:12]])
+                c1, c2 = st.columns(2)
+                with c1:
+                    if dbg["page_html"]:
+                        st.download_button(
+                            label="페이지 원본 HTML 다운로드",
+                            data=dbg["page_html"],
+                            file_name=f"danawa_page_{st.session_state.last_keyword}.html",
+                            mime="text/html",
+                            use_container_width=True,
+                        )
+                with c2:
+                    if dbg["option_block_html"]:
+                        st.download_button(
+                            label="옵션 블록 HTML 다운로드",
+                            data=dbg["option_block_html"],
+                            file_name=f"danawa_option_{st.session_state.last_keyword}.html",
+                            mime="text/html",
+                            use_container_width=True,
+                        )
 
 # --------------------------------
 # 제조사 선택 (체크박스 UI)
@@ -79,7 +106,6 @@ else:
         )
     with fc2:
         if st.button("전체 선택", use_container_width=True):
-            # 현재 필터가 걸린 항목만 일괄 선택
             ft = st.session_state.filter_text.strip().lower()
             for name in st.session_state.selected_map.keys():
                 if not ft or ft in name.lower():
@@ -98,7 +124,7 @@ else:
         if (not filter_text or filter_text in o["name"].lower())
     ]
 
-    # 가독성을 위해 3열 그리드로 체크박스 배치
+    # 3열 그리드로 체크박스 배치
     cols = st.columns(3)
     for idx, name in enumerate(visible_names):
         col = cols[idx % 3]
@@ -115,7 +141,7 @@ search_col1, search_col2 = st.columns([1, 3])
 with search_col1:
     clicked_search = st.button("제품 검색하기", type="primary", use_container_width=True)
 with search_col2:
-    st.caption("체크한 제조사의 숫자 코드만 maker 파라미터에 전달됩니다. (maker=코드1,코드2,...)")
+    st.caption("체크한 제조사의 **숫자 코드**만 maker 파라미터에 전달됩니다. (maker=코드1,코드2,...)")
 
 if clicked_search:
     if not st.session_state.last_keyword.strip():
@@ -128,8 +154,7 @@ if clicked_search:
             code = st.session_state.name_to_code.get(nm)
             if code and code.isdigit():
                 codes.append(code)
-        # 중복 제거
-        codes = list(dict.fromkeys(codes))
+        codes = list(dict.fromkeys(codes))  # 중복 제거
 
         with st.spinner("검색 중..."):
             results = parser.search_products(st.session_state.last_keyword, codes if codes else None)
