@@ -168,15 +168,21 @@ class DanawaParser:
                         if product_items:
                             break
             
+            print(f"찾은 제품 아이템 수: {len(product_items)}")
+            
             parsed_count = 0
-            for item in product_items[:limit * 2]:  # 여유있게 더 많이 시도
+            for i, item in enumerate(product_items[:limit * 2]):  # 여유있게 더 많이 시도
                 try:
+                    print(f"제품 {i+1} 파싱 시도...")
                     product = self._parse_product_item(item)
                     if product:
+                        print(f"제품 파싱 성공: {product.name[:50]}...")
                         products.append(product)
                         parsed_count += 1
                         if parsed_count >= limit:
                             break
+                    else:
+                        print(f"제품 {i+1} 파싱 실패 - 유효하지 않은 데이터")
                     time.sleep(0.3)  # 요청 간격 조절 (조금 빠르게)
                 except Exception as e:
                     print(f"개별 제품 파싱 중 오류: {e}")
@@ -197,8 +203,15 @@ class DanawaParser:
             # 방법 1: goods-list__title 클래스
             name_elem = item.find('span', class_='goods-list__title')
             if name_elem:
-                name = name_elem.text.strip()
+                # <br> 태그를 공백으로 변환
+                for br in name_elem.find_all('br'):
+                    br.replace_with(' ')
+                name = name_elem.get_text(strip=True)
+                # 연속된 공백을 하나로 압축
+                name = ' '.join(name.split())
+                print(f"제품명 찾음: '{name}'")
             else:
+                print("goods-list__title 클래스를 찾을 수 없음")
                 # 방법 2: a 태그의 title 속성
                 link_elem = item.find('a', title=True)
                 if link_elem:
@@ -214,14 +227,20 @@ class DanawaParser:
             # 가격 추출 - 여러 방법 시도
             price = "가격 문의"
             
-            # 방법 1: goods-list__price > em.number
+            # 방법 1: goods-list__price > em.num (실제 구조)
             price_div = item.find('div', class_='goods-list__price')
             if price_div:
-                number_elem = price_div.find('em', class_='number')
+                # 'num' 클래스 시도
+                number_elem = price_div.find('em', class_='num')
+                if not number_elem:
+                    # 'number' 클래스도 시도 (하위 호환)
+                    number_elem = price_div.find('em', class_='number')
+                
                 if number_elem and number_elem.text.strip():
                     price_text = number_elem.text.strip()
                     if price_text and price_text != '-':
                         price = price_text + "원"
+                        print(f"가격 찾음: '{price}'")
             
             # 방법 2: 다른 가격 클래스들 시도
             if price == "가격 문의":
@@ -258,16 +277,38 @@ class DanawaParser:
         try:
             specs = []
             
-            # 방법 1: spec-box__inner 클래스에서 추출
+            # 방법 1: 해당 li 요소나 인근에서 spec-box__inner 찾기
+            # li 요소 자체에서 찾기
             spec_inner = item.find('div', class_='spec-box__inner')
+            
+            # li 요소에 없으면 부모나 형제 요소에서 찾기
+            if not spec_inner:
+                parent = item.parent
+                if parent:
+                    # 부모의 모든 자식에서 찾기
+                    spec_inner = parent.find('div', class_='spec-box__inner')
+                
+                # 여전히 없으면 더 넓은 범위에서 찾기
+                if not spec_inner:
+                    # productItem ID를 기반으로 연관 사양 찾기
+                    item_id = item.get('id')
+                    if item_id:
+                        # 같은 페이지에서 관련 사양 정보 찾기
+                        soup = item.find_parent().find_parent() if item.parent else None
+                        if soup:
+                            spec_inner = soup.find('div', class_='spec-box__inner')
+            
             if spec_inner:
                 spec_spans = spec_inner.find_all('span')
                 for span in spec_spans:
                     # slash 클래스가 아닌 경우만 추출
-                    if 'slash' not in span.get('class', []):
+                    span_classes = span.get('class', [])
+                    if 'slash' not in span_classes:
                         text = span.text.strip()
                         if text and len(text) > 1 and text not in ['/', '|', '-']:
                             specs.append(text)
+                            
+                print(f"사양 정보 찾음: {len(specs)}개")
             
             # 방법 2: 다른 사양 관련 클래스들 시도
             if not specs:
