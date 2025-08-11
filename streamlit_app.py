@@ -150,9 +150,6 @@ with st.container():
                         
                         if manufacturer_options:
                             st.success(f"✅ {len(manufacturer_options)}개의 제조사 옵션을 찾았습니다!")
-                            # 디버깅: 찾은 제조사들 표시
-                            for opt in manufacturer_options:
-                                st.info(f"제조사: {opt['name']} (코드: {opt['code']})")
                         else:
                             st.warning("⚠️ 제조사 옵션을 찾을 수 없습니다.")
                     except Exception as e:
@@ -196,17 +193,14 @@ if st.session_state.show_manufacturers and st.session_state.search_options:
                         
                         # 선택된 제조사가 있으면 콤마로 연결해서 한 번에 검색
                         if selected_manufacturers:
-                            st.info(f"선택된 제조사: {selected_manufacturers}")
                             # 다중 제조사 선택시 콤마로 연결 (예: maker=702%2C4213)
                             maker_codes = "%2C".join(selected_manufacturers)  # %2C는 콤마의 URL 인코딩
                             option_filter = f"maker={maker_codes}"
-                            st.info(f"제조사 필터 적용: {option_filter}")
                             results = st.session_state.parser.search_all_categories(
                                 search_keyword.strip(), option_filter
                             )
                             for category, products in results.items():
                                 all_products.extend(products)
-                            st.info(f"찾은 제품 수: {len(all_products)}")
                         else:
                             # 제조사 필터 없이 전체 검색
                             results = st.session_state.parser.search_all_categories(search_keyword.strip())
