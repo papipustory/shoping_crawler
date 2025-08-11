@@ -49,41 +49,62 @@ class DanawaParser:
             # 제조사/브랜드 탭에서 옵션 찾기 (실제 HTML 구조 기반)
             maker_tab = soup.find('div', id='makerBrandTab')
             if maker_tab:
-                # 제조사 버튼들 찾기
-                buttons = maker_tab.find_all('button', class_='button__option')
+                # 제조사 버튼들 찾기 - 정확한 클래스명 사용
+                buttons = maker_tab.find_all('button', class_='button_option')
                 
-                # 제조사명과 숫자 코드 매핑 (다나와 실제 코드)
-                manufacturer_codes = {
-                    '삼성전자': '185',
-                    'LG전자': '21', 
-                    'ASUS': '17',
-                    'MSI': '143',
-                    'GIGABYTE': '399',
-                    'EVGA': '3148',
-                    '조텍': '3142',
-                    '갤럭시': '3154',
-                    '인텔': '16',
-                    'AMD': '238',
-                    'NVIDIA': '3151',
-                    '마이크론': '3144',
-                    'SK하이닉스': '3147',
-                    '웨스턴디지털': '22',
-                    '시게이트': '24',
-                    '도시바': '23',
-                    '크루셜': '3145',
-                    'CORSAIR': '3146',
-                    'G.SKILL': '3149',
-                    'TeamGroup': '3150',
-                }
+                print(f"찾은 제조사 버튼 수: {len(buttons)}")
                 
                 for button in buttons:
                     option_name = button.get('data-optionname')
-                    if option_name and option_name in manufacturer_codes:
+                    option_code = button.get('data-optioncode')
+                    
+                    print(f"제조사: {option_name}, 코드: {option_code}")
+                    
+                    # 실제 제조사 코드를 찾기 위해 링크에서 cateCode나 maker 파라미터 추출
+                    actual_code = None
+                    
+                    # 버튼 근처에서 링크 찾기
+                    parent_li = button.find_parent('li')
+                    if parent_li:
+                        # onclick 이벤트나 data 속성에서 실제 코드 찾기
+                        onclick = button.get('onclick')
+                        if onclick and 'cateCode=' in onclick:
+                            import re
+                            match = re.search(r'cateCode=(\d+)', onclick)
+                            if match:
+                                actual_code = match.group(1)
+                        elif onclick and 'maker=' in onclick:
+                            import re
+                            match = re.search(r'maker=(\d+)', onclick)
+                            if match:
+                                actual_code = match.group(1)
+                    
+                    # 실제 코드를 찾지 못했으면 data-optioncode 사용 (하지만 숫자로 변환 시도)
+                    if not actual_code and option_code:
+                        if option_code.isdigit():
+                            actual_code = option_code
+                        else:
+                            # 제조사명이 코드인 경우 기본 매핑 사용
+                            default_codes = {
+                                '삼성전자': '185',
+                                'LG전자': '21',
+                                'ASUS': '17',
+                                'MSI': '143',
+                                'GIGABYTE': '399',
+                                '웨스턴디지털': '22',
+                                '시게이트': '24',
+                                '인텔': '16',
+                                'AMD': '238',
+                            }
+                            actual_code = default_codes.get(option_name, '0')
+                    
+                    if option_name and actual_code:
                         options.append({
                             'category': '제조사',
                             'name': option_name,
-                            'code': manufacturer_codes[option_name]
+                            'code': actual_code
                         })
+                        print(f"추가됨: {option_name} -> {actual_code}")
             
             # 옵션을 찾지 못한 경우 기본 제조사 목록 사용
             if not options:
@@ -141,11 +162,28 @@ class DanawaParser:
         # 옵션 필터가 있으면 추가 (예: maker=3148)
         if option_filter:
             key, value = option_filter.split('=')
+            
+            # 다나와 모바일에서 사용하는 다양한 제조사 필터 파라미터 시도
+            if key == 'maker':
+                # 여러 방식으로 제조사 필터 적용
+                params['maker'] = value
+                params['makerNo'] = value  # 대안 1
+                params['brandCd'] = value  # 대안 2
+                params['brandCode'] = value  # 대안 3
+                params['cateCode'] = value  # 카테고리 코드 (실제 제조사 코드)
+                
             params[key] = value
+            print(f"제조사 필터 적용: {key}={value}")
+            print(f"추가 제조사 파라미터들도 적용")
+        
+        print(f"검색 URL: {self.base_url}")
+        print(f"검색 파라미터: {params}")
         
         try:
             response = self.session.get(self.base_url, params=params)
             response.raise_for_status()
+            print(f"응답 상태: {response.status_code}")
+            print(f"최종 URL: {response.url}")
             
             soup = BeautifulSoup(response.text, 'html.parser')
             products = []
