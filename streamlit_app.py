@@ -165,80 +165,80 @@ if st.session_state.show_manufacturers and st.session_state.search_options:
     st.markdown("### 🏭 제조사 선택 (다중선택 가능)")
     
     st.markdown('<div class="manufacturer-grid">', unsafe_allow_html=True)
-        
-        # 제조사 체크박스들을 열로 배치
-        manufacturers = st.session_state.search_options
-        cols = st.columns(min(4, len(manufacturers)))
-        
-        selected_manufacturers = []
-        for i, manufacturer in enumerate(manufacturers):
-            with cols[i % len(cols)]:
-                if st.checkbox(
-                    manufacturer['name'], 
-                    key=f"manufacturer_{manufacturer['code']}"
-                ):
-                    selected_manufacturers.append(manufacturer['code'])
-        
-        st.markdown('</div>', unsafe_allow_html=True)
-        
-        # 검색 버튼들
-        col1, col2, col3 = st.columns([2, 2, 1])
-        
-        with col1:
-            if st.button("🛒 제품 검색하기", key="search_products"):
-                if search_keyword.strip():
-                    with st.spinner('제품을 검색하는 중...'):
-                        try:
-                            all_products = []
-                            
-                            # 선택된 제조사가 있으면 각각 검색
-                            if selected_manufacturers:
-                                for manufacturer_code in selected_manufacturers:
-                                    option_filter = f"maker={manufacturer_code}"
-                                    results = st.session_state.parser.search_all_categories(
-                                        search_keyword.strip(), option_filter
-                                    )
-                                    for category, products in results.items():
-                                        all_products.extend(products)
-                            else:
-                                # 제조사 필터 없이 전체 검색
-                                results = st.session_state.parser.search_all_categories(search_keyword.strip())
+    
+    # 제조사 체크박스들을 열로 배치
+    manufacturers = st.session_state.search_options
+    cols = st.columns(min(4, len(manufacturers)))
+    
+    selected_manufacturers = []
+    for i, manufacturer in enumerate(manufacturers):
+        with cols[i % len(cols)]:
+            if st.checkbox(
+                manufacturer['name'], 
+                key=f"manufacturer_{manufacturer['code']}"
+            ):
+                selected_manufacturers.append(manufacturer['code'])
+    
+    st.markdown('</div>', unsafe_allow_html=True)
+    
+    # 검색 버튼들
+    col1, col2, col3 = st.columns([2, 2, 1])
+    
+    with col1:
+        if st.button("🛒 제품 검색하기", key="search_products"):
+            if search_keyword.strip():
+                with st.spinner('제품을 검색하는 중...'):
+                    try:
+                        all_products = []
+                        
+                        # 선택된 제조사가 있으면 각각 검색
+                        if selected_manufacturers:
+                            for manufacturer_code in selected_manufacturers:
+                                option_filter = f"maker={manufacturer_code}"
+                                results = st.session_state.parser.search_all_categories(
+                                    search_keyword.strip(), option_filter
+                                )
                                 for category, products in results.items():
                                     all_products.extend(products)
+                        else:
+                            # 제조사 필터 없이 전체 검색
+                            results = st.session_state.parser.search_all_categories(search_keyword.strip())
+                            for category, products in results.items():
+                                all_products.extend(products)
+                        
+                        # 중복 제거 및 가격순 정렬
+                        seen_names = set()
+                        unique_products = []
+                        for product in all_products:
+                            if product.name not in seen_names:
+                                seen_names.add(product.name)
+                                unique_products.append(product)
+                        
+                        # 가격순 정렬
+                        def extract_price_number(price_str):
+                            import re
+                            numbers = re.findall(r'[0-9,]+', price_str)
+                            if numbers:
+                                return int(numbers[0].replace(',', ''))
+                            return 999999999
+                        
+                        unique_products.sort(key=lambda p: extract_price_number(p.price))
+                        
+                        st.session_state.search_results = unique_products
+                        
+                        if unique_products:
+                            st.success(f"✅ {len(unique_products)}개의 제품을 찾았습니다!")
+                        else:
+                            st.warning("⚠️ 검색 결과가 없습니다.")
                             
-                            # 중복 제거 및 가격순 정렬
-                            seen_names = set()
-                            unique_products = []
-                            for product in all_products:
-                                if product.name not in seen_names:
-                                    seen_names.add(product.name)
-                                    unique_products.append(product)
-                            
-                            # 가격순 정렬
-                            def extract_price_number(price_str):
-                                import re
-                                numbers = re.findall(r'[0-9,]+', price_str)
-                                if numbers:
-                                    return int(numbers[0].replace(',', ''))
-                                return 999999999
-                            
-                            unique_products.sort(key=lambda p: extract_price_number(p.price))
-                            
-                            st.session_state.search_results = unique_products
-                            
-                            if unique_products:
-                                st.success(f"✅ {len(unique_products)}개의 제품을 찾았습니다!")
-                            else:
-                                st.warning("⚠️ 검색 결과가 없습니다.")
-                                
-                        except Exception as e:
-                            st.error(f"❌ 검색 중 오류: {str(e)}")
-                else:
-                    st.error("❌ 검색어를 입력해주세요.")
-        
-        with col2:
-            if st.button("🔄 선택 초기화", key="clear_selection"):
-                st.rerun()
+                    except Exception as e:
+                        st.error(f"❌ 검색 중 오류: {str(e)}")
+            else:
+                st.error("❌ 검색어를 입력해주세요.")
+    
+    with col2:
+        if st.button("🔄 선택 초기화", key="clear_selection"):
+            st.rerun()
     
     st.markdown('</div>', unsafe_allow_html=True)
 
