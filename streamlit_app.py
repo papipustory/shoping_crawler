@@ -14,13 +14,13 @@ st.set_page_config(
 # 세션 상태
 # --------------------------------
 if "options" not in st.session_state:
-    st.session_state.options = []  # [{'category':'제조사','name':'Samsung','code':'702'}, ...]
+    st.session_state.options = []  # [{'category':'제조사','name':'삼성전자','code':'삼성전자'}, ...]
 if "name_to_code" not in st.session_state:
-    st.session_state.name_to_code = {}  # {'Samsung':'702', ...}
+    st.session_state.name_to_code = {}
 if "last_keyword" not in st.session_state:
     st.session_state.last_keyword = ""
 if "selected_map" not in st.session_state:
-    st.session_state.selected_map = {}  # {'Samsung': True/False, ...}
+    st.session_state.selected_map = {}  # {'삼성전자': True/False, ...}
 if "df" not in st.session_state:
     st.session_state.df = pd.DataFrame()
 if "filter_text" not in st.session_state:
@@ -45,16 +45,16 @@ with col_btn:
             st.session_state.last_keyword = keyword.strip()
             with st.spinner("옵션 로딩 중..."):
                 options = parser.get_search_options(st.session_state.last_keyword)
-                # 페이지가 제공한 옵션만 사용(비숫자/공백 제거는 danawa.py에서 처리)
+                # 숫자 강제 제거 없음 — 페이지가 준 그대로 사용
                 options = [
                     {"name": o["name"].strip(), "code": o["code"].strip(), "category": o.get("category", "제조사")}
                     for o in options
-                    if o.get("name") and str(o.get("code", "")).isdigit()
+                    if o.get("name") and o.get("code")
                 ]
                 st.session_state.options = options
                 st.session_state.name_to_code = {o["name"]: o["code"] for o in options}
 
-                # 체크박스 상태 초기화 (옵션 목록 기준으로 리셋)
+                # 체크박스 상태 초기화
                 st.session_state.selected_map = {o["name"]: False for o in options}
                 st.session_state.filter_text = ""
 
@@ -63,7 +63,7 @@ with col_btn:
             else:
                 st.success(f"옵션 {len(options)}개 로드 완료.")
 
-            # 디버그 정보 섹션
+            # 디버그 정보
             dbg = parser.get_debug_dump()
             with st.expander("🔎 디버그 정보 보기", expanded=False):
                 st.write("요청 URL:", (dbg["request_url"] or b"").decode("utf-8"))
@@ -98,7 +98,6 @@ st.markdown("### 제조사 선택")
 if not st.session_state.options:
     st.info("먼저 상단의 '검색 옵션 로드' 버튼을 눌러 옵션을 가져오세요.")
 else:
-    # 필터 입력(이름 검색)
     fc1, fc2, fc3 = st.columns([2, 1, 1])
     with fc1:
         st.session_state.filter_text = st.text_input(
@@ -117,14 +116,12 @@ else:
                 if not ft or ft in name.lower():
                     st.session_state.selected_map[name] = False
 
-    # 필터 적용 목록
     filter_text = st.session_state.filter_text.strip().lower()
     visible_names = [
         o["name"] for o in st.session_state.options
         if (not filter_text or filter_text in o["name"].lower())
     ]
 
-    # 3열 그리드로 체크박스 배치
     cols = st.columns(3)
     for idx, name in enumerate(visible_names):
         col = cols[idx % 3]
@@ -141,18 +138,17 @@ search_col1, search_col2 = st.columns([1, 3])
 with search_col1:
     clicked_search = st.button("제품 검색하기", type="primary", use_container_width=True)
 with search_col2:
-    st.caption("체크한 제조사의 **숫자 코드**만 maker 파라미터에 전달됩니다. (maker=코드1,코드2,...)")
+    st.caption("선택한 값은 maker/brand 파라미터로 그대로 전달됩니다. (숫자/문자 모두 허용)")
 
 if clicked_search:
     if not st.session_state.last_keyword.strip():
         st.warning("먼저 '검색 옵션 로드'로 옵션을 불러오세요.")
     else:
-        # 체크된 이름 → 숫자 코드로 변환
         selected_names = [n for n, v in st.session_state.selected_map.items() if v]
         codes = []
         for nm in selected_names:
             code = st.session_state.name_to_code.get(nm)
-            if code and code.isdigit():
+            if code:
                 codes.append(code)
         codes = list(dict.fromkeys(codes))  # 중복 제거
 
@@ -176,7 +172,6 @@ if st.session_state.df is not None and not st.session_state.df.empty:
         hide_index=True,
     )
 
-    # 엑셀 다운로드
     xbytes = parser.to_excel_bytes(st.session_state.df)
     st.download_button(
         label="Excel 다운로드",
