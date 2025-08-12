@@ -29,17 +29,28 @@ class DanawaParser:
             if not option_area:
                 return []
 
-            maker_items = option_area.find_all('div', class_='basic_cate_item')
-            for item in maker_items:
-                checkbox = item.find('input', type='checkbox')
-                label = item.find('label')
-                if checkbox and label:
-                    name_span = label.find('span', class_='name')
-                    if name_span:
-                        options.append({
-                            'name': name_span.text.strip(),
-                            'code': checkbox.get('value')
-                        })
+            # '제조사/브랜드' 또는 '제조자' 타이틀을 가진 섹션을 찾습니다.
+            option_sections = option_area.find_all('div', class_='search_option_item')
+            if not option_sections: #대체 구조
+                option_sections = option_area.find_all('div', class_='basic_top_area')
+
+            for section in option_sections:
+                title_tag = section.find('h4', class_='cate_tit')
+                if title_tag and title_tag.text.strip() in ["제조사/브랜드", "제조자"]:
+                    maker_items = section.find_all('div', class_='basic_cate_item')
+                    for item in maker_items:
+                        checkbox = item.find('input', type='checkbox')
+                        label = item.find('label')
+                        if checkbox and label:
+                            name_span = label.find('span', class_='name')
+                            if name_span:
+                                options.append({
+                                    'name': name_span.text.strip(),
+                                    'code': checkbox.get('value')
+                                })
+                    # 제조사 정보를 찾았으면 더 이상 다른 섹션을 순회할 필요가 없습니다.
+                    break
+            
             return options
         except Exception as e:
             print(f"An error occurred while fetching search options: {e}")
