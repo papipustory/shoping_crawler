@@ -93,10 +93,6 @@ class DanawaParser:
             response.raise_for_status()
             soup = BeautifulSoup(response.text, 'html.parser')
             products = []
-
-            # 광고 영역 제거
-            for ad_area in soup.find_all(id=lambda x: x and 'ad' in x.lower()):
-                ad_area.decompose()
             
             product_list = soup.find('ul', class_='product_list')
             if not product_list:
