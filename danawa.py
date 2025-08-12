@@ -23,36 +23,64 @@ class DanawaParser:
             response = self.session.get(self.base_url, params=params)
             response.raise_for_status()
             soup = BeautifulSoup(response.text, 'html.parser')
-            options = []
+            
+            # 1. 정확한 방법 시도
+            options = self._get_options_strictly(soup)
+            if options:
+                return options
 
-            option_area = soup.find('div', id='searchOptionListArea')
-            if not option_area:
-                return []
+            # 2. 정확한 방법 실패 시, 넓은 범위의 대체 방법으로 전환
+            return self._get_options_broadly(soup)
 
-            # "제조사/브랜드" 또는 "제조자" 제목을 직접 찾습니다.
-            title_tag = option_area.find('h4', class_='cate_tit', string=lambda t: t and t.strip() in ["제조사/브랜드", "제조자"])
-
-            if title_tag:
-                # 제목을 감싸는 부모 컨테이너를 찾습니다.
-                parent_container = title_tag.find_parent('div', class_=[_class for _class in ['search_option_item', 'basic_top_area'] if _class])
-                if parent_container:
-                    cate_cont = parent_container.find('div', class_='cate_cont')
-                    if cate_cont:
-                        maker_items = cate_cont.find_all('div', class_='basic_cate_item')
-                        for item in maker_items:
-                            checkbox = item.find('input', type='checkbox')
-                            label = item.find('label')
-                            if checkbox and label:
-                                name_span = label.find('span', class_='name')
-                                if name_span:
-                                    options.append({
-                                        'name': name_span.text.strip(),
-                                        'code': checkbox.get('value')
-                                    })
-            return options
         except Exception as e:
             print(f"An error occurred while fetching search options: {e}")
             return []
+
+    def _get_options_strictly(self, soup: BeautifulSoup) -> List[Dict[str, str]]:
+        """ "제조사/브랜드" 섹션을 정확히 찾아서 옵션을 추출합니다. """
+        options = []
+        option_area = soup.find('div', id='searchOptionListArea')
+        if not option_area:
+            return []
+
+        title_tag = option_area.find('h4', class_='cate_tit', string=lambda t: t and t.strip() in ["제조사/브랜드", "제조자"])
+        if title_tag:
+            parent_container = title_tag.find_parent('div', class_=[_class for _class in ['search_option_item', 'basic_top_area'] if _class])
+            if parent_container:
+                cate_cont = parent_container.find('div', class_='cate_cont')
+                if cate_cont:
+                    maker_items = cate_cont.find_all('div', class_='basic_cate_item')
+                    for item in maker_items:
+                        checkbox = item.find('input', type='checkbox')
+                        label = item.find('label')
+                        if checkbox and label:
+                            name_span = label.find('span', class_='name')
+                            if name_span:
+                                options.append({
+                                    'name': name_span.text.strip(),
+                                    'code': checkbox.get('value')
+                                })
+        return options
+
+    def _get_options_broadly(self, soup: BeautifulSoup) -> List[Dict[str, str]]:
+        """ 넓은 범위로 모든 옵션을 찾되, 상위 24개로 제한합니다. """
+        options = []
+        option_area = soup.find('div', id='searchOptionListArea')
+        if not option_area:
+            return []
+
+        maker_items = option_area.find_all('div', class_='basic_cate_item', limit=24)
+        for item in maker_items:
+            checkbox = item.find('input', type='checkbox')
+            label = item.find('label')
+            if checkbox and label:
+                name_span = label.find('span', class_='name')
+                if name_span:
+                    options.append({
+                        'name': name_span.text.strip(),
+                        'code': checkbox.get('value')
+                    })
+        return options
 
     def search_products(self, keyword: str, sort_type: str, maker_codes: List[str], limit: int = 5) -> List[Product]:
         params = {
