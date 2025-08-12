@@ -44,21 +44,19 @@ if st.session_state.manufacturers:
     st.subheader("제조사를 선택하세요 (중복 가능)")
     with st.form(key="manufacturer_form"):
         cols = st.columns(4)
-        selected_options = {}
         for i, manufacturer in enumerate(st.session_state.manufacturers):
             with cols[i % 4]:
-                selected_options[manufacturer['name']] = st.checkbox(
-                    manufacturer['name'],
-                    key=f"chk_{manufacturer['code']}_{i}"
-                )
+                # 각 체크박스에 고유한 key를 할당합니다. Streamlit이 이 key를 사용해 상태를 관리합니다.
+                st.checkbox(manufacturer['name'], key=f"mfr_{i}")
         
         product_search_button = st.form_submit_button("선택한 제조사로 제품 검색")
 
     if product_search_button:
-        selected_codes = [
-            m['code'] for m in st.session_state.manufacturers 
-            if selected_options.get(m['name'])
-        ]
+        # 폼 제출 후, st.session_state에서 직접 각 체크박스의 상태를 읽어옵니다.
+        selected_codes = []
+        for i, manufacturer in enumerate(st.session_state.manufacturers):
+            if st.session_state[f"mfr_{i}"]:
+                selected_codes.append(manufacturer['code'])
         
         if not selected_codes:
             st.warning("하나 이상의 제조사를 선택해주세요.")
@@ -69,6 +67,8 @@ if st.session_state.manufacturers:
                 )
                 if not st.session_state.products:
                     st.info("선택된 제조사의 제품을 찾을 수 없습니다.")
+                # 검색이 완료되면 페이지를 새로고침하여 결과를 즉시 표시합니다.
+                st.rerun()
 
 # --- 3. Display Results ---
 if st.session_state.products:
