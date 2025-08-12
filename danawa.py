@@ -29,28 +29,26 @@ class DanawaParser:
             if not option_area:
                 return []
 
-            # '제조사/브랜드' 또는 '제조자' 타이틀을 가진 섹션을 찾습니다.
-            option_sections = option_area.find_all('div', class_='search_option_item')
-            if not option_sections: #대체 구조
-                option_sections = option_area.find_all('div', class_='basic_top_area')
+            # "제조사/브랜드" 또는 "제조자" 제목을 직접 찾습니다.
+            title_tag = option_area.find('h4', class_='cate_tit', string=lambda t: t and t.strip() in ["제조사/브랜드", "제조자"])
 
-            for section in option_sections:
-                title_tag = section.find('h4', class_='cate_tit')
-                if title_tag and title_tag.text.strip() in ["제조사/브랜드", "제조자"]:
-                    maker_items = section.find_all('div', class_='basic_cate_item')
-                    for item in maker_items:
-                        checkbox = item.find('input', type='checkbox')
-                        label = item.find('label')
-                        if checkbox and label:
-                            name_span = label.find('span', class_='name')
-                            if name_span:
-                                options.append({
-                                    'name': name_span.text.strip(),
-                                    'code': checkbox.get('value')
-                                })
-                    # 제조사 정보를 찾았으면 더 이상 다른 섹션을 순회할 필요가 없습니다.
-                    break
-            
+            if title_tag:
+                # 제목을 감싸는 부모 컨테이너를 찾습니다.
+                parent_container = title_tag.find_parent('div', class_=[_class for _class in ['search_option_item', 'basic_top_area'] if _class])
+                if parent_container:
+                    cate_cont = parent_container.find('div', class_='cate_cont')
+                    if cate_cont:
+                        maker_items = cate_cont.find_all('div', class_='basic_cate_item')
+                        for item in maker_items:
+                            checkbox = item.find('input', type='checkbox')
+                            label = item.find('label')
+                            if checkbox and label:
+                                name_span = label.find('span', class_='name')
+                                if name_span:
+                                    options.append({
+                                        'name': name_span.text.strip(),
+                                        'code': checkbox.get('value')
+                                    })
             return options
         except Exception as e:
             print(f"An error occurred while fetching search options: {e}")
