@@ -120,17 +120,21 @@ class DanawaParser:
             price_sect = item.find('p', class_='price_sect')
             price = price_sect.a.strong.text.strip() if price_sect and price_sect.a and price_sect.a.strong else "가격 문의"
 
+            specifications = "사양 정보 없음"
             spec_list_div = item.find('div', class_='spec_list')
-            specs = []
             if spec_list_div:
-                # spec_list 안의 모든 a 태그의 텍스트를 추출
-                spec_links = spec_list_div.find_all('a')
-                for link in spec_links:
-                    spec_text = link.text.strip()
-                    if spec_text and "상세 스펙 보기" not in spec_text:
-                        specs.append(spec_text)
-            
-            specifications = " / ".join(specs) if specs else "사양 정보 없음"
+                # get_text()를 사용하여 모든 텍스트를 가져온 후, | 문자로 분리하고 정리합니다.
+                full_text = spec_list_div.get_text(separator='|', strip=True)
+                specs = [spec.strip() for spec in full_text.split('|')]
+                
+                # 불필요한 텍스트(빈 문자열, 특수문자 등)를 제거합니다.
+                cleaned_specs = [
+                    spec for spec in specs 
+                    if spec and len(spec) > 1 and "상세 스펙 보기" not in spec
+                ]
+                
+                if cleaned_specs:
+                    specifications = " / ".join(cleaned_specs)
 
             return Product(name=name, price=price, specifications=specifications)
         except Exception as e:
