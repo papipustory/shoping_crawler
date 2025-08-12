@@ -120,16 +120,16 @@ class DanawaParser:
             price_sect = item.find('p', class_='price_sect')
             price = price_sect.a.strong.text.strip() if price_sect and price_sect.a and price_sect.a.strong else "가격 문의"
 
-            spec_list = item.find('div', class_='spec_list')
+            spec_list_div = item.find('div', class_='spec_list')
             specs = []
-            if spec_list:
-                spec_items = spec_list.find_all('a', class_='view_spec')
-                for spec_item in spec_items:
-                    # "상세 스펙 보기" 텍스트를 제외하고 스펙 정보만 추출
-                    spec_text = spec_item.text.strip()
+            if spec_list_div:
+                # spec_list 안의 모든 a 태그의 텍스트를 추출
+                spec_links = spec_list_div.find_all('a')
+                for link in spec_links:
+                    spec_text = link.text.strip()
                     if spec_text and "상세 스펙 보기" not in spec_text:
                         specs.append(spec_text)
-
+            
             specifications = " / ".join(specs) if specs else "사양 정보 없음"
 
             return Product(name=name, price=price, specifications=specifications)
