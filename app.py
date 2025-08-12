@@ -73,12 +73,25 @@ if st.session_state.manufacturers:
 # --- 3. Display Results ---
 if st.session_state.products:
     st.subheader(f"'{st.session_state.keyword}'에 대한 검색 결과")
+
+    # 가격순으로 정렬하기 위한 헬퍼 함수
+    def extract_price(product):
+        try:
+            # "원"과 ","를 제거하고 숫자로 변환
+            price_str = product.price.replace('원', '').replace(',', '')
+            return int(price_str)
+        except (ValueError, AttributeError):
+            # "가격 문의" 등 변환 불가능한 경우, 맨 뒤로 보내기 위해 무한대 값 반환
+            return float('inf')
+
+    # 제품 목록을 가격 오름차순으로 정렬
+    sorted_products = sorted(st.session_state.products, key=extract_price)
     
     data = [{
         "제품명": p.name,
         "가격": p.price,
         "주요 사양": p.specifications
-    } for p in st.session_state.products]
+    } for p in sorted_products]
     
     df = pd.DataFrame(data)
     st.dataframe(df, height=35 * (len(df) + 1), use_container_width=True)
