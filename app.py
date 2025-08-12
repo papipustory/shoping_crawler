@@ -42,8 +42,8 @@ if st.session_state.manufacturers:
     for i, manufacturer in enumerate(st.session_state.manufacturers):
         with cols[i % 4]:
             st.session_state.selected_manufacturers[manufacturer['name']] = st.checkbox(
-                manufacturer['name'], 
-                key=f"chk_{manufacturer['code']}"
+                manufacturer['name'],
+                key=f"chk_{manufacturer['code']}_{i}"
             )
 
     if st.button("선택한 제조사로 제품 검색"):
