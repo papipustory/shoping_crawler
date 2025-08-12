@@ -18,38 +18,46 @@ if 'selected_manufacturers' not in st.session_state:
 if 'products' not in st.session_state:
     st.session_state.products = []
 
-# --- 1. Keyword Input ---
-col1, col2 = st.columns([3, 1])
-with col1:
-    keyword_input = st.text_input("검색어를 입력하세요:", placeholder="예: 그래픽카드, SSD", value=st.session_state.keyword)
-with col2:
-    st.write("&nbsp;") # for alignment
-    if st.button("제조사 검색"):
-        st.session_state.keyword = keyword_input
-        if st.session_state.keyword:
-            with st.spinner("제조사 정보를 가져오는 중..."):
-                st.session_state.manufacturers = st.session_state.parser.get_search_options(st.session_state.keyword)
-                st.session_state.selected_manufacturers = {m['name']: False for m in st.session_state.manufacturers}
-                if not st.session_state.manufacturers:
-                    st.warning("해당 검색어에 대한 제조사 정보를 찾을 수 없습니다.")
-        else:
-            st.warning("검색어를 입력해주세요.")
+# --- 1. Keyword Input using a Form ---
+with st.form(key="search_form"):
+    keyword_input = st.text_input(
+        "검색어를 입력하세요:", 
+        placeholder="예: 그래픽카드, SSD", 
+        value=st.session_state.get("keyword", "")
+    )
+    search_button = st.form_submit_button(label="제조사 검색")
+
+if search_button:
+    st.session_state.keyword = keyword_input
+    st.session_state.products = [] # 새로운 검색 시 이전 제품 결과 초기화
+    if st.session_state.keyword:
+        with st.spinner("제조사 정보를 가져오는 중..."):
+            st.session_state.manufacturers = st.session_state.parser.get_search_options(st.session_state.keyword)
+            st.session_state.selected_manufacturers = {m['name']: False for m in st.session_state.manufacturers}
+            if not st.session_state.manufacturers:
+                st.warning("해당 검색어에 대한 제조사 정보를 찾을 수 없습니다.")
+    else:
+        st.warning("검색어를 입력해주세요.")
 
 # --- 2. Manufacturer Selection ---
 if st.session_state.manufacturers:
     st.subheader("제조사를 선택하세요 (중복 가능)")
-    cols = st.columns(4)
-    for i, manufacturer in enumerate(st.session_state.manufacturers):
-        with cols[i % 4]:
-            st.session_state.selected_manufacturers[manufacturer['name']] = st.checkbox(
-                manufacturer['name'],
-                key=f"chk_{manufacturer['code']}_{i}"
-            )
+    with st.form(key="manufacturer_form"):
+        cols = st.columns(4)
+        selected_options = {}
+        for i, manufacturer in enumerate(st.session_state.manufacturers):
+            with cols[i % 4]:
+                selected_options[manufacturer['name']] = st.checkbox(
+                    manufacturer['name'],
+                    key=f"chk_{manufacturer['code']}_{i}"
+                )
+        
+        product_search_button = st.form_submit_button("선택한 제조사로 제품 검색")
 
-    if st.button("선택한 제조사로 제품 검색"):
+    if product_search_button:
         selected_codes = [
             m['code'] for m in st.session_state.manufacturers 
-            if st.session_state.selected_manufacturers[m['name']]
+            if selected_options.get(m['name'])
         ]
         
         if not selected_codes:
