@@ -86,7 +86,7 @@ class DanawaParser:
         params = {
             'query': keyword,
             'sort': sort_type,
-            'maker': ",".join(maker_codes)
+            'manufacturer': ",".join(maker_codes)
         }
         try:
             response = self.session.get(self.base_url, params=params)
